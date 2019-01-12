@@ -128,6 +128,7 @@ byte *pDev=(byte*)&devid;
 uint16_t cmd;
 char tmp[10];
 byte len;
+byte pos=3;
 char param[10];
 
 volatile char averageFrequencyOffset = 0; // use char for signed 8 bit type
@@ -331,6 +332,7 @@ void loop() {
         pm=pmPacketStart;
         check=0;
         pkt_pos=0;
+        pos=3;
       }
       else if(in==0x35)
       {
@@ -374,45 +376,55 @@ void loop() {
         if (in_flags & enDev2) devidCount++;
         pDev=(byte*)&devid+2; //platform specific
       }
-      else if(pkt_pos<=6)//ids we only support 2 atm (1,2 or 3 ids are valid)
+      else if(pkt_pos<=pos)//ids, support 1 or 2 atm (1,2 or 3 ids are valid)
       {
         *pDev--=in;//platform specific
-        if(pkt_pos==3 || pkt_pos==6)
+        if(pkt_pos==3)
         {
-          if(pkt_pos==6) //only support 2 ids atm (1,2 or 3 ids are valid)
-            Serial.print("--:------ ");
+          if(!(in_flags&enDev0) && !(in_flags&enDev1))    
+            Serial.print("--:------ --:------ ");
+          else    
+            pos += 3;
           sprintf(tmp,"%02hu:%06lu ",(uint8_t)(devid>>18)&0x3F,devid&0x3FFFF);
           Serial.print(tmp);
           pDev=(byte*)&devid+2;//platform specific
-          if((pkt_pos==3) && (devidCount == 1)) {
-            Serial.print("--:------ --:------ ");
-            pkt_pos=6;// skip processing 2nd address
-          }
+        }
+        else if(pkt_pos==6)
+        {  
+          if(!(in_flags&enDev1))
+            Serial.print("--:------ "); 
+          sprintf(tmp,"%02hu:%06lu ",(uint8_t)(devid>>18)&0x3F,devid&0x3FFFF);
+          Serial.print(tmp);
+          if(!(in_flags&enDev2))
+            Serial.print("--:------ "); 
+          pDev=(byte*)&devid+2;//platform specific
         }
       }
-      else if(pkt_pos<=8)//command
+      else if(pkt_pos<=pos+2)//command
       {
-        if(pkt_pos==7)
+         if(pkt_pos == 4) //Skip the value
+          pos++;
+        else if(pkt_pos==pos+1)
           cmd=in<<8;
-        else
+        else if(pkt_pos==pos+2)
         {
           cmd|=in;
           sprintf(tmp,"%04X ",cmd);
           Serial.print(tmp);
         }
       }
-      else if(pkt_pos==9)//len
+      else if(pkt_pos==pos+3)//len
       {
         len=in;
         sprintf(tmp,"%03hu ",len);
         Serial.print(tmp);
       }
-      else if(pkt_pos<=9+len)//payload
+      else if(pkt_pos<=pos+3+len)//payload
       {
         sprintf(tmp,"%02hX",in);
         Serial.print(tmp);
       }
-      else if(pkt_pos==10+len)//checksum
+      else if(pkt_pos==pos+4+len)//checksum
       {
         if(check==0)
         {
@@ -495,9 +507,9 @@ void loop() {
                if(param[0]!='-')
                {
                  out_flags|=1<<(sp-2);
-                 byte idType;
+                 uint8_t idType;
                  uint32_t idAddr;
-                 sscanf(param,"%02hu:%06lu",&idType,&idAddr);
+                 sscanf(param,"%02hhu:%06lu",&idType,&idAddr);
                  if(idType==18 && idAddr==730)
                    idAddr=GW_ID;
                  else
