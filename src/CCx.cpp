@@ -163,7 +163,7 @@ void CCX::Setup(byte configId)
       for(byte i = 0; i< CCX_NR_OF_REGISTERS; i++){
          reg=pgm_read_byte(&CCx_registers[i]);
          val=pgm_read_byte(&CCx_registerSettings[configId][i]);//read flash data no problem
-         byte temp = Write(reg,val);
+         Write(reg,val);
          //Serial.print(temp,HEX);
          //Serial.print(" ");
       }
