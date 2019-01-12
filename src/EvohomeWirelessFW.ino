@@ -534,7 +534,7 @@ void loop() {
              }
              else if(sp==6)
              {
-               sscanf(param,"%03hu",&out_len);
+               sscanf(param,"%03hhu",&out_len);
                send_buffer[op++]=out_len;
              }
              
@@ -554,7 +554,7 @@ void loop() {
          {
            param[pp]=0;
            byte pay;
-           sscanf(param,"%02hX",&pay);
+           sscanf(param,"%02hhX",&pay);
            send_buffer[op++]=pay;
            pp=0;
            if(op>(out_len+10) || op>127)
