@@ -275,13 +275,6 @@ void sync_clk_out() {
 
 // Setup
 void setup() {
-  //from http://forum.arduino.cc/index.php?topic=54623.0
-  //an ideal freq of 8.294400 is required for 0% error @ 115200
-  //this will cause time delays to be off by a factor of approx 0.964 per sec
-  //if OSCCAL is factory calibrated to 8MHz then just adjust by the ratio 
-  //... not exactly guaranteed of course!
-  //OSCCAL=(double)OSCCAL*1.0368;
-  OSCCAL=((uint32_t)OSCCAL*10368+5000)/10000;//Use integer maths here as makes smaller code than fp above
   delay(200); //probably not a bad idea to wait until power etc. have stabilised a little
 
   // Power up and configure the CC1101
@@ -290,10 +283,10 @@ void setup() {
   while(((CCx.Write(CCx_SIDLE,0)>>4)&7)!=0);
   while(((CCx.Write(CCx_SRX,0)>>4)&7)!=1);//will calibrate when going to rx
   
-  // Data is received at 38k4 (packet bytes only at 19k2 due to manchster encoding)
+  // Data is received at 38k4 (packet bytes only at 19k2 due to manchester encoding)
   // 115k2 provides enough speed to perform processing and write the received
-  // bytes to serial
-  Serial.begin(115200);
+  // bytes to serial, but cannot be used reliably with an 8MHz clock
+  Serial.begin(250000);
 
   Serial.println(F("# EvohomeWirelessFW v" VERSION_NO " Copyright (c) 2015 Hydrogenetic"));
   Serial.println(F("# Licensed under GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>"));
