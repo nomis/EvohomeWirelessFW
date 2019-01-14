@@ -140,21 +140,19 @@ void sync_clk_in() {
     sync_buffer<<=1;
     if(new_bit)
       sync_buffer |= 1;
-  
-    if(!in_sync)
-    {
-      if(sync_buffer==SYNC_WORD)
-      {
-        circ_buffer.push(0x53,true);
-        
-        bit_counter=0;
-        byte_buffer=0;
-        bm=0x10;
-        in_sync=true;
+
+    if (sync_buffer==SYNC_WORD) {
+      if (in_sync) {
+        // abort and restart
+        circ_buffer.push(0x35,true);
       }
-    }
-    else
-    {
+      circ_buffer.push(0x53,true);
+
+      bit_counter=0;
+      byte_buffer=0;
+      bm=0x10;
+      in_sync=true;
+    } else if (in_sync) {
       if (bit_counter > 0) // Skip start bit
       {
         if (bit_counter < 9)
@@ -178,8 +176,6 @@ void sync_clk_in() {
             {
               in_sync=false;
               circ_buffer.push(0x35,true);
-              // if((sync_buffer&0x7F)==0x2B) //if this might be 0x35 breaking word remove it so it can't be confused with the sync_word
-                sync_buffer=0;
               return;
             }
           }
