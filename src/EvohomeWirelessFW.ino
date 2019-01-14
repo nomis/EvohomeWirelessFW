@@ -284,6 +284,7 @@ void setup() {
   // bytes to serial, but cannot be used reliably with an 8MHz clock
   Serial.begin(250000);
 
+  Serial.println(F("##############################################################"));
   Serial.println(F("# EvohomeWirelessFW v" VERSION_NO " Copyright (c) 2015 Hydrogenetic"));
   Serial.println(F("# Licensed under GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>"));
 
