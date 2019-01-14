@@ -42,7 +42,6 @@
 #define GDO0_PD 4 // PD2(INT0) wired to GDO0 on CC1101 (CCx_IOCFG0==0x0C Serial Synchronous Data Output. Used for synchronous serial mode.)
 #define GDO2_PD 8 // PD3(INT1) wired to GDO2 on CC1101
 
-#define GW_ID         0x48DADA //This should ideally be unique for every device and some addresses may not be valid
                       // using the knowledge that the sync bytes after the preamble are 0xFF 0x00 0x33 0x55 0x53, 
                       // that the values are sent LSB first and start bit = 0 and stop bit = 1 we create the 32 bit sync value
 #if !defined(SYNC_ON_32BITS)
@@ -510,10 +509,7 @@ void loop() {
                  uint8_t idType;
                  uint32_t idAddr;
                  sscanf(param,"%02hhu:%06lu",&idType,&idAddr);
-                 if(idType==18 && idAddr==730)
-                   idAddr=GW_ID;
-                 else
-                   idAddr|=(uint32_t)idType<<18;
+                 idAddr|=(uint32_t)idType<<18;
                  send_buffer[op++]=(idAddr>>16)&0xFF;
                  send_buffer[op++]=(idAddr>>8)&0xFF;
                  send_buffer[op++]=idAddr&0xFF;
