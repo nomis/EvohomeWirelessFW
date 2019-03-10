@@ -349,7 +349,7 @@ void loop() {
       else if(in==0x35)
       {
         if(pm==pmNewPacket) {
-          Serial.println(F("\x11*INCOMPLETE*"));
+          Serial.println(F("*INCOMPLETE*"));
           handleFreqOffset(0);
         }
         pm=pmIdle;
@@ -382,7 +382,7 @@ void loop() {
           Serial.print(" W ");
         else
         {
-          Serial.print(F("\x11Unknown header=0x"));
+          Serial.print(F("*Unknown header=0x"));
           Serial.println(in,HEX);
           pm=pmIdle;
           return;
@@ -455,7 +455,7 @@ void loop() {
         }
         else
         {
-          Serial.println(F("\x11*CHK*"));
+          Serial.println(F("*CHK*"));
           handleFreqOffset(0);
         }
         pm=pmIdle;
@@ -463,7 +463,7 @@ void loop() {
       }
       else
       {
-        Serial.println(F("\x11*E-DATA*"));
+        Serial.println(F("*E-DATA*"));
         handleFreqOffset(0);
         pm=pmIdle;
         return;
