@@ -123,9 +123,11 @@ byte check=0;
 byte pkt_pos=0;
 byte devidCount=0;
 uint32_t devid;
+byte rssi;
+uint32_t src_devid;
 byte *pDev=(byte*)&devid;
 uint16_t cmd;
-char tmp[10];
+char tmp[20];
 byte len;
 byte pos=3;
 char param[10];
@@ -293,6 +295,27 @@ void setup() {
   attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
 }
 
+void handleFreqOffset(int ok) {
+  char estimatedFrequencyOffset;
+  CCx.Read(CCx_FREQEST, (byte*) &estimatedFrequencyOffset);
+
+  if (ok) {
+    averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + estimatedFrequencyOffset);
+    CCx.Write(CCx_FSCTRL0, averageFrequencyOffset);
+  }
+
+  if (src_devid != 0) {
+    sprintf(tmp,"# %02hu:%06lu",(uint8_t)(src_devid>>18)&0x3F,src_devid&0x3FFFF);
+    Serial.print(tmp);
+    Serial.print(F(" RSSI="));
+    Serial.print(rssi, DEC);
+    Serial.print(F(" FREQEST="));
+    Serial.print(estimatedFrequencyOffset, DEC);
+    Serial.print(F(" FACCT="));
+    Serial.println(averageFrequencyOffset, DEC);
+  }
+}
+
 // Main loop
 void loop() {
   if(sm==pmSendFinished)
@@ -325,8 +348,10 @@ void loop() {
       }
       else if(in==0x35)
       {
-        if(pm==pmNewPacket)
+        if(pm==pmNewPacket) {
           Serial.println(F("\x11*INCOMPLETE*"));
+          handleFreqOffset(0);
+        }
         pm=pmIdle;
       }
     }
@@ -341,7 +366,10 @@ void loop() {
           in_flags=0;
         else
           in_flags=unpack_flags(in_header);
-        Serial.print("--- ");//dummy val in place of RSSI (095 low presumably -95? and 045 high)
+        CCx.Read(CCx_RSSI, &rssi);
+        rssi = (rssi < 128) ? (rssi + 128) : (rssi - 128); // not the RSSI, but a scale of 0-255
+        sprintf(tmp, "%03u ", rssi);
+        Serial.print(tmp);
         // sprintf(tmp, "%02X-%02X: ", in, in_flags);
         // Serial.print(tmp);
         if(in_flags&enI)
@@ -360,6 +388,7 @@ void loop() {
           return;
         }
         Serial.print("--- ");//parameter not supported... not been observed yet
+        src_devid = 0;
         devidCount = (in_flags & enDev0) ? 1 : 0;
         if (in_flags & enDev1) devidCount++;
         if (in_flags & enDev2) devidCount++;
@@ -374,6 +403,8 @@ void loop() {
             Serial.print("--:------ --:------ ");
           else    
             pos += 3;
+          if (src_devid == 0)
+            src_devid = devid;
           sprintf(tmp,"%02hu:%06lu ",(uint8_t)(devid>>18)&0x3F,devid&0x3FFFF);
           Serial.print(tmp);
           pDev=(byte*)&devid+2;//platform specific
@@ -382,6 +413,8 @@ void loop() {
         {  
           if(!(in_flags&enDev1))
             Serial.print("--:------ "); 
+          if (src_devid == 0)
+            src_devid = devid;
           sprintf(tmp,"%02hu:%06lu ",(uint8_t)(devid>>18)&0x3F,devid&0x3FFFF);
           Serial.print(tmp);
           if(!(in_flags&enDev2))
@@ -418,25 +451,20 @@ void loop() {
         if(check==0)
         {
           Serial.println();
-          char estimatedFrequencyOffset;
-          CCx.Read(CCx_FREQEST, (byte*) &estimatedFrequencyOffset);
-          averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + estimatedFrequencyOffset);
-          CCx.Write(CCx_FSCTRL0, averageFrequencyOffset);
-
-          // Serial.print(F("FREQEST="));
-          // Serial.println(estimatedFrequencyOffset, DEC);
-          // Serial.print(F("FACCT="));
-          // Serial.println(averageFrequencyOffset, DEC);
-          
+          handleFreqOffset(1);
         }
         else
+        {
           Serial.println(F("\x11*CHK*"));
+          handleFreqOffset(0);
+        }
         pm=pmIdle;
         return;
       }
       else
       {
         Serial.println(F("\x11*E-DATA*"));
+        handleFreqOffset(0);
         pm=pmIdle;
         return;
       }
