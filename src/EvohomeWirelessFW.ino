@@ -72,6 +72,13 @@ enum enflags{
   enW=enI<<1,  
 };
 
+enum marker {
+  maStart,
+  maEnd,
+  maResync,
+  maInvalid,
+};
+
 const byte manc_enc[16]={0xAA,0xA9,0xA6,0xA5,0x9A,0x99,0x96,0x95,0x6A,0x69,0x66,0x65,0x5A,0x59,0x56,0x55};
 const byte pre_sync[5]={0xff,0x00,0x33,0x55,0x53};
 const byte header_flags[16]={0x0f,0x0c,0x0d,0x0b,0x27,0x24,0x25,0x23,0x47,0x44,0x45,0x43,0x17,0x14,0x15,0x13};
@@ -146,9 +153,9 @@ void sync_clk_in() {
     if (sync_buffer==SYNC_WORD) {
       if (in_sync) {
         // abort and restart
-        circ_buffer.push(0x35,true);
+        circ_buffer.push(maResync,true);
       }
-      circ_buffer.push(0x53,true);
+      circ_buffer.push(maStart,true);
 
       bit_counter=0;
       byte_buffer=0;
@@ -177,7 +184,7 @@ void sync_clk_in() {
            if(new_bit==last_bit)//manchester encoding must always have 1 transition per bit pair
             {
               in_sync=false;
-              circ_buffer.push(0x35,true);
+              circ_buffer.push(maInvalid,true);
               return;
             }
           }
@@ -188,7 +195,7 @@ void sync_clk_in() {
           if(!new_bit)
           {
             in_sync=false;
-            circ_buffer.push(0x35,true);
+            circ_buffer.push(maEnd,true);
             return;
           }
           bit_counter=0;
@@ -200,7 +207,7 @@ void sync_clk_in() {
         if(new_bit)
         {
           in_sync=false;
-          circ_buffer.push(0x35,true);
+          circ_buffer.push(maInvalid,true);
           return;
         }
       }
@@ -327,7 +334,7 @@ void loop() {
     detachInterrupt(GDO2_INT);
     in_sync=false;
     bit_counter=0;
-    circ_buffer.push(0x35,true);
+    circ_buffer.push(maEnd,true);
     pinMode(2,INPUT);
     while(((CCx.Write(CCx_SRX,0)>>4)&7)!=1); 
     attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
@@ -343,17 +350,23 @@ void loop() {
     
     if(mark)
     {
-      if(in==0x53)
+      if(in==maStart)
       {
         pm=pmPacketStart;
         check=0;
         pkt_pos=0;
         pos=3;
       }
-      else if(in==0x35)
+      else
       {
         if(pm==pmNewPacket) {
-          Serial.println(F("*INCOMPLETE*"));
+          if (in == maResync) {
+            Serial.println(F("*INCOMPLETE*RESYNC*"));
+          } else if (in == maInvalid) {
+            Serial.println(F("*INCOMPLETE*INVALID*"));
+          } else if (in == maEnd) {
+            Serial.println(F("*INCOMPLETE*END*"));
+          }
           handleFreqOffset(0);
         }
         pm=pmIdle;
@@ -595,7 +608,7 @@ void loop() {
        sp=0;
        pp=0;
        out_flags=0;//reuse for preamble counter
-       circ_buffer.push(0x53,true); //don't push anything while interrupt is running
+       circ_buffer.push(maStart,true); //don't push anything while interrupt is running
        attachInterrupt(GDO2_INT, sync_clk_out, RISING);
   }
 }
