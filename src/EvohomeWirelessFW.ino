@@ -299,10 +299,12 @@ void handleFreqOffset(int ok) {
   char estimatedFrequencyOffset;
   CCx.Read(CCx_FREQEST, (byte*) &estimatedFrequencyOffset);
 
+#if 0
   if (ok) {
     averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + estimatedFrequencyOffset);
     CCx.Write(CCx_FSCTRL0, averageFrequencyOffset);
   }
+#endif
 
   if (src_devid != 0) {
     sprintf(tmp,"# %02hu:%06lu",(uint8_t)(src_devid>>18)&0x3F,src_devid&0x3FFFF);
@@ -310,9 +312,11 @@ void handleFreqOffset(int ok) {
     Serial.print(F(" RSSI="));
     Serial.print(rssi, DEC);
     Serial.print(F(" FREQEST="));
-    Serial.print(estimatedFrequencyOffset, DEC);
+    Serial.println(estimatedFrequencyOffset, DEC);
+#if 0
     Serial.print(F(" FACCT="));
     Serial.println(averageFrequencyOffset, DEC);
+#endif
   }
 }
 
