@@ -315,10 +315,10 @@ void setup() {
 	attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
 }
 
-void handleFreqOffset(char estimatedFrequencyOffset, int ok) {
+void handleFreqOffset(struct recv_packet *packet, int ok) {
 #if 0
 	if (ok) {
-		averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + estimatedFrequencyOffset);
+		averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + packet->freqOffset);
 		CCx.Write(CCx_FSCTRL0, averageFrequencyOffset);
 	}
 #endif
@@ -327,9 +327,9 @@ void handleFreqOffset(char estimatedFrequencyOffset, int ok) {
 		sprintf(tmp,"# %02hu:%06lu", (uint8_t)(src_devid >> 18) & 0x3F, src_devid & 0x3FFFF);
 		Serial.print(tmp);
 		Serial.print(F(" RSSI="));
-		Serial.print(rssi, DEC);
+		Serial.print(packet->rssi, DEC);
 		Serial.print(F(" FREQEST="));
-		Serial.println(estimatedFrequencyOffset, DEC);
+		Serial.println(packet->freqOffset, DEC);
 #if 0
 		Serial.print(F(" FACCT="));
 		Serial.println(averageFrequencyOffset, DEC);
@@ -467,15 +467,15 @@ void loop() {
 			} else if (pkt_pos == pos + 4 + len) { // checksum
 				if (check == 0) {
 					Serial.println();
-					handleFreqOffset(packet.freqOffset, 1);
+					handleFreqOffset(&packet, 1);
 				} else {
 					Serial.println(F("*CHK*"));
-					handleFreqOffset(packet.freqOffset, 0);
+					handleFreqOffset(&packet, 0);
 				}
 				return;
 			} else {
 				Serial.println(F("*E-DATA*"));
-				handleFreqOffset(packet.freqOffset, 0);
+				handleFreqOffset(&packet, 0);
 				return;
 			}
 			pkt_pos++;
@@ -491,7 +491,7 @@ void loop() {
 			Serial.println(F("*INCOMPLETE*OVERFLOW*"));
 		}
 
-		handleFreqOffset(packet.freqOffset, 0);
+		handleFreqOffset(&packet, 0);
 	} else if (sm < pmSendReady) {
 		if (Serial.available()) {
 			char out = Serial.read();
