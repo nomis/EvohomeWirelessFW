@@ -298,8 +298,8 @@ void setup() {
 	// Power up and configure the CC1101
 	CCx.PowerOnStartUp();
 	CCx.Setup(0);
-	while(((CCx.Write(CCx_SIDLE, 0) >> 4) & 7) != 0);
-	while(((CCx.Write(CCx_SRX, 0) >> 4) & 7) != 1);//will calibrate when going to rx
+	while (((CCx.Write(CCx_SIDLE, 0) >> 4) & 7) != 0);
+	while (((CCx.Write(CCx_SRX, 0) >> 4) & 7) != 1); // will calibrate when going to rx
 
 	// Data is received at 38k4 (packet bytes only at 19k2 due to manchester encoding)
 	// 115k2 provides enough speed to perform processing and write the received
