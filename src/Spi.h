@@ -34,7 +34,7 @@ public:
 	SPI(void);
 	void mode(byte);
 	byte transfer(byte);
-	byte slaveSelect(byte);
+	void slaveSelect(byte);
 };
 
 extern SPI Spi;

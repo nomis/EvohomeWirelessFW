@@ -63,7 +63,7 @@ byte SPI::transfer(byte value) {
 
 //------------------ slave Select ---------------------------------------------
 
-byte SPI::slaveSelect(byte value) {
+void SPI::slaveSelect(byte value) {
 	digitalWrite(SS_PIN,value);
 }
 
