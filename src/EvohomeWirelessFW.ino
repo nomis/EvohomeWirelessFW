@@ -30,7 +30,6 @@
 
 #include "CCx.h"
 #include "CCxCfg.h"
-#include "Buffer.h"
 
 #define VERSION_NO "0.9alpha"
 
@@ -53,8 +52,6 @@
 
 enum progMode {
 	pmIdle,
-	pmPacketStart,
-	pmNewPacket,
 	pmSendBadPacket,
 	pmSendHavePacket,
 	pmSendReady,
@@ -73,10 +70,10 @@ enum enflags{
 };
 
 enum marker {
-	maStart,
-	maEnd,
+	maComplete,
 	maResync,
 	maInvalid,
+	maOverflow,
 };
 
 const byte manc_enc[16] = { 0xAA, 0xA9, 0xA6, 0xA5, 0x9A, 0x99, 0x96, 0x95, 0x6A, 0x69, 0x66, 0x65, 0x5A, 0x59, 0x56, 0x55 };
@@ -102,8 +99,18 @@ byte pack_flags(byte flags) {
 	return 0xFF;
 }
 
-//in strictest terms volatile is only required when an interrupt (or similar) could affect the result of an operation accessing a memory location that may otherwise have been optimised out
-volatile CircularBuffer<volatile byte, volatile byte, 255> circ_buffer; //circular buffer (FIFO)
+#define MAX_PACKETS 4
+
+struct recv_packet {
+	boolean ready;
+	uint8_t length;
+	enum marker status;
+	byte data[128];
+};
+struct recv_packet recv_buffer[MAX_PACKETS] = { { false, 0, maInvalid, { 0 } } };
+volatile uint8_t readIndex = 0;
+volatile uint8_t writeIndex = 0;
+volatile boolean available = false;
 volatile byte send_buffer[128];
 
 byte pm = pmIdle;
@@ -112,7 +119,7 @@ volatile byte sm = pmIdle;
 byte bit_counter = 0;
 byte byte_buffer = 0;
 
-boolean in_sync = false;
+volatile boolean in_sync = false;
 #if !defined(SYNC_ON_32BITS)
 uint16_t sync_buffer = 0;
 #else
@@ -141,6 +148,23 @@ char param[10];
 
 volatile char averageFrequencyOffset = 0; // use char for signed 8 bit type
 
+void finish_recv_buffer(enum marker status) {
+	if (recv_buffer[writeIndex].length > 0) {
+		recv_buffer[writeIndex].status = status;
+		recv_buffer[writeIndex].ready = true;
+		available = true;
+
+		writeIndex = (writeIndex + 1) % MAX_PACKETS;
+		if (recv_buffer[writeIndex].ready) {
+			recv_buffer[writeIndex].ready = false;
+			readIndex = (readIndex + 1) % MAX_PACKETS;
+		}
+		recv_buffer[writeIndex].length = 0;
+	}
+
+	in_sync = false;
+}
+
 // Interrupt to receive data and find_sync_word
 void sync_clk_in() {
 	byte new_bit = (PIND & GDO0_PD); // sync data
@@ -154,9 +178,8 @@ void sync_clk_in() {
 	if (sync_buffer == SYNC_WORD) {
 		if (in_sync) {
 			// abort and restart
-			circ_buffer.push(maResync, true);
+			finish_recv_buffer(maResync);
 		}
-		circ_buffer.push(maStart, true);
 
 		bit_counter = 0;
 		byte_buffer = 0;
@@ -171,23 +194,26 @@ void sync_clk_in() {
 					}
 					bm <<= 1;
 					if (bm == 0x10) {
-						circ_buffer.push(byte_buffer); // we can not see raw 0x35 here as our buffer is already manchester decoded we rely on rejection of 0x35 as it is not manchester encoded to end our packet
+						if (recv_buffer[writeIndex].length == sizeof(recv_buffer[writeIndex].data)) {
+							finish_recv_buffer(maOverflow);
+							return;
+						}
+						// we can not see raw 0x35 here as our buffer is already manchester decoded we rely on rejection of 0x35 as it is not manchester encoded to end our packet
+						recv_buffer[writeIndex].data[recv_buffer[writeIndex].length++] = byte_buffer;
 						byte_buffer = 0;
 					} else if (!bm) {
 						bm = 0x01;
 					}
 				} else {
 					if (new_bit == last_bit) { // manchester encoding must always have 1 transition per bit pair
-						in_sync = false;
-						circ_buffer.push(maInvalid, true);
+						finish_recv_buffer(maInvalid);
 						return;
 					}
 				}
 				last_bit = new_bit;
 			} else { // Last bit has been received
 				if (!new_bit) {
-					in_sync = false;
-					circ_buffer.push(maEnd, true);
+					finish_recv_buffer(maComplete);
 					return;
 				}
 				bit_counter = 0;
@@ -195,8 +221,7 @@ void sync_clk_in() {
 			}
 		} else {
 			if (new_bit) {
-				in_sync = false;
-				circ_buffer.push(maInvalid, true);
+				finish_recv_buffer(maInvalid);
 				return;
 			}
 		}
@@ -223,7 +248,9 @@ void sync_clk_out() {
 					if (highnib) {
 						byte_buffer = manc_enc[(byte_buffer >> 4) & 0xF];
 					} else {
-						circ_buffer.push(byte_buffer); // echo bytes when sending
+						if (recv_buffer[writeIndex].length < sizeof(recv_buffer[writeIndex].data)) {
+							recv_buffer[writeIndex].data[recv_buffer[writeIndex].length++] = byte_buffer;
+						}
 						byte_buffer = manc_enc[byte_buffer & 0xF];
 						sp++;
 					}
@@ -279,10 +306,9 @@ void setup() {
 	attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
 }
 
-void handleFreqOffset(int ok) {
-	char estimatedFrequencyOffset;
-	CCx.Read(CCx_FREQEST, (byte*)&estimatedFrequencyOffset);
+char estimatedFrequencyOffset;
 
+void handleFreqOffset(int ok) {
 #if 0
 	if (ok) {
 		averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + estimatedFrequencyOffset);
@@ -310,7 +336,7 @@ void loop() {
 		detachInterrupt(GDO2_INT);
 		in_sync = false;
 		bit_counter = 0;
-		circ_buffer.push(maEnd,true);
+		finish_recv_buffer(maComplete);
 		pinMode(2,INPUT);
 		while(((CCx.Write(CCx_SRX, 0) >> 4) & 7) != 1);
 		attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
@@ -319,41 +345,46 @@ void loop() {
 		sp = 0;
 		sm = pmIdle;
 	}
-	if (circ_buffer.remain()) {
-		bool mark;
-		byte in(circ_buffer.pop(mark));
+	if (available) {
+		struct recv_packet packet = { false, 0, maInvalid, { 0 } };
 
-		if (mark) {
-			if (in == maStart) {
-				pm = pmPacketStart;
-				check = 0;
-				pkt_pos = 0;
-				pos = 3;
-			} else {
-				if (pm == pmNewPacket) {
-					if (in == maResync) {
-						Serial.println(F("*INCOMPLETE*RESYNC*"));
-					} else if (in == maInvalid) {
-						Serial.println(F("*INCOMPLETE*INVALID*"));
-					} else if (in == maEnd) {
-						Serial.println(F("*INCOMPLETE*END*"));
-					}
-					handleFreqOffset(0);
+		cli();
+		if (available) {
+			if (recv_buffer[readIndex].ready) {
+				memcpy(&packet, &recv_buffer[readIndex], offsetof(struct recv_packet, data) + recv_buffer[readIndex].length);
+				recv_buffer[readIndex].ready = false;
+				readIndex = (readIndex + 1) % MAX_PACKETS;
+
+				if (!recv_buffer[readIndex].ready) {
+					available = false;
 				}
-				pm = pmIdle;
 			}
-		} else if (pm > pmIdle) {
+		}
+		sei();
+
+		if (!packet.ready) {
+			return;
+		}
+
+		CCx.Read(CCx_RSSI, &rssi);
+		CCx.Read(CCx_FREQEST, (byte*)&estimatedFrequencyOffset);
+		rssi = (rssi < 128) ? (rssi + 128) : (rssi - 128); // not the RSSI, but a scale of 0-255
+
+		check = 0;
+		pkt_pos = 0;
+		pos = 3;
+
+		for (uint8_t n = 0; n < packet.length; n++) {
+			byte in = packet.data[n];
+
 			check += in;
 			if (pkt_pos == 0) {
-				pm = pmNewPacket;
 				in_header = in;
 				if ((in & 0xC0) || (in & 3) == 3) { //we don't recognise a header when 2 high reserved bits are set or both parameters bits are set simultaneously (we only have room for 1 parameter in our output - need more feedback could this be a parameter mode?)
 					in_flags = 0;
 				} else {
 					in_flags = unpack_flags(in_header);
 				}
-				CCx.Read(CCx_RSSI, &rssi);
-				rssi = (rssi < 128) ? (rssi + 128) : (rssi - 128); // not the RSSI, but a scale of 0-255
 				sprintf(tmp, "%03u ", rssi);
 				Serial.print(tmp);
 				// sprintf(tmp, "%02X-%02X: ", in, in_flags);
@@ -369,7 +400,6 @@ void loop() {
 				} else {
 					Serial.print(F("*Unknown header=0x"));
 					Serial.println(in, HEX);
-					pm = pmIdle;
 					return;
 				}
 				Serial.print("--- "); // parameter not supported... not been observed yet
@@ -431,16 +461,26 @@ void loop() {
 					Serial.println(F("*CHK*"));
 					handleFreqOffset(0);
 				}
-				pm = pmIdle;
 				return;
 			} else {
 				Serial.println(F("*E-DATA*"));
 				handleFreqOffset(0);
-				pm = pmIdle;
 				return;
 			}
 			pkt_pos++;
 		}
+
+		if (packet.status == maComplete) {
+			Serial.println(F("*INCOMPLETE*END*"));
+		} else if (packet.status == maResync) {
+			Serial.println(F("*INCOMPLETE*RESYNC*"));
+		} else if (packet.status == maInvalid) {
+			Serial.println(F("*INCOMPLETE*INVALID*"));
+		} else if (packet.status == maOverflow) {
+			Serial.println(F("*INCOMPLETE*OVERFLOW*"));
+		}
+
+		handleFreqOffset(0);
 	} else if (sm < pmSendReady) {
 		if (Serial.available()) {
 			char out = Serial.read();
@@ -523,7 +563,7 @@ void loop() {
 				}
 			}
 		}
-	} else if (sm == pmSendReady && pm != pmNewPacket) {
+	} else if (sm == pmSendReady && !in_sync) {
 			detachInterrupt(GDO2_INT);
 			while (((CCx.Write(CCx_SIDLE, 0) >> 4) & 7) != 0);
 			while (((CCx.Write(CCx_STX, 0) >> 4) & 7) != 2); // will calibrate when going to tx
@@ -534,7 +574,7 @@ void loop() {
 			sp = 0;
 			pp = 0;
 			out_flags = 0; // reuse for preamble counter
-			circ_buffer.push(maStart, true); // don't push anything while interrupt is running
+			finish_recv_buffer(maComplete);
 			attachInterrupt(GDO2_INT, sync_clk_out, RISING);
 	}
 }
