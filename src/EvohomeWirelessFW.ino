@@ -111,6 +111,7 @@ struct recv_packet recv_buffer[MAX_PACKETS] = { { false, 0, maInvalid, { 0 } } }
 volatile uint8_t readIndex = 0;
 volatile uint8_t writeIndex = 0;
 volatile boolean available = false;
+volatile boolean read_rssi = false;
 volatile byte send_buffer[128];
 
 byte pm = pmIdle;
@@ -185,6 +186,7 @@ void sync_clk_in() {
 		byte_buffer = 0;
 		bm = 0x10;
 		in_sync = true;
+		read_rssi = true;
 	} else if (in_sync) {
 		if (bit_counter > 0) { // Skip start bit
 			if (bit_counter < 9) {
@@ -345,6 +347,12 @@ void loop() {
 		sp = 0;
 		sm = pmIdle;
 	}
+	if (read_rssi) {
+		CCx.Read(CCx_RSSI, &rssi);
+		CCx.Read(CCx_FREQEST, (byte*)&estimatedFrequencyOffset);
+		rssi = (rssi < 128) ? (rssi + 128) : (rssi - 128); // not the RSSI, but a scale of 0-255
+		read_rssi = false;
+	}
 	if (available) {
 		struct recv_packet packet = { false, 0, maInvalid, { 0 } };
 
@@ -365,10 +373,6 @@ void loop() {
 		if (!packet.ready) {
 			return;
 		}
-
-		CCx.Read(CCx_RSSI, &rssi);
-		CCx.Read(CCx_FREQEST, (byte*)&estimatedFrequencyOffset);
-		rssi = (rssi < 128) ? (rssi + 128) : (rssi - 128); // not the RSSI, but a scale of 0-255
 
 		check = 0;
 		pkt_pos = 0;
