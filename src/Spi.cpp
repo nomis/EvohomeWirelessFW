@@ -41,7 +41,7 @@ SPI::SPI() {
 //------------------ mode ---------------------------------------------------
 
 void SPI::mode(byte config) {
-	byte tmp;
+	volatile byte tmp __attribute__((unused));
 
 	// enable SPI master with configuration byte specified
 	SPCR = 0;
