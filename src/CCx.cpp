@@ -29,11 +29,11 @@
 
 //---------- constructor ----------------------------------------------------
 
-CCX::CCX(){}
+CCX::CCX() {}
 
 // Power On Reset as described in  19.1.2 of cc1100 datasheet, tried APOR as described in 19.1.1 but that did not work :-(
 void CCX::PowerOnStartUp() {
-   Spi.mode((1 << SPR1) | (1 << SPR0));//SPICLK=CPU/64
+   Spi.mode((1 << SPR1) | (1 << SPR0)); // SPICLK=CPU/64
 
    // start manual Power On Reset
    Spi.slaveSelect(HIGH);
@@ -48,13 +48,13 @@ void CCX::PowerOnStartUp() {
    Spi.slaveSelect(LOW);
 
    // wait for MISO to go low
-   while(digitalRead(MISO_PIN));
+   while (digitalRead(MISO_PIN));
 
    Spi.transfer(CCx_SRES);
 
 
    // wait for MISO to go low
-   while(digitalRead(MISO_PIN));
+   while (digitalRead(MISO_PIN));
 
    Spi.slaveSelect(HIGH);
 }
@@ -67,15 +67,14 @@ byte CCX::Read(byte addr, byte* data) {
    // wait for MISO to go low
    while (digitalRead(MISO_PIN));
 
-   result=Spi.transfer(addr | 0x80);
-   *data=Spi.transfer(0);
+   result = Spi.transfer(addr | 0x80);
+   *data = Spi.transfer(0);
 
    Spi.slaveSelect(HIGH);
    return result;
 }
 
-byte CCX::ReadBurst(byte addr, byte* dataPtr, byte size)
-{
+byte CCX::ReadBurst(byte addr, byte* dataPtr, byte size) {
 
    byte result;
 
@@ -95,7 +94,7 @@ byte CCX::ReadBurst(byte addr, byte* dataPtr, byte size)
    return result;
 }
 
-byte CCX::Write(byte addr, byte dat) {
+byte CCX::Write(byte addr, byte data) {
 
    byte result;
 
@@ -104,7 +103,7 @@ byte CCX::Write(byte addr, byte dat) {
    while (digitalRead(MISO_PIN));
 
    result = Spi.transfer(addr);
-   result = Spi.transfer(dat);
+   result = Spi.transfer(data);
 
    Spi.slaveSelect(HIGH);
 
@@ -166,7 +165,7 @@ void CCX::Setup(byte configId) {
 void CCX::ReadSetup() {
    byte reg;
    byte value;
-   for (byte i = 0; i < CCX_NR_OF_REGISTERS; i++){
+   for (byte i = 0; i < CCX_NR_OF_REGISTERS; i++) {
       reg = pgm_read_byte(&CCx_registers[i]);
       Read(reg, &value);
       Serial.print(reg, HEX);

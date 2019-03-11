@@ -51,7 +51,7 @@
 #define SYNC_WORD    ((uint32_t)0x59955595) // The 32 bit version of the synchronisation sequence
 #endif
 
-enum progMode{
+enum progMode {
 	pmIdle,
 	pmPacketStart,
 	pmNewPacket,
@@ -79,9 +79,9 @@ enum marker {
 	maInvalid,
 };
 
-const byte manc_enc[16]={0xAA,0xA9,0xA6,0xA5,0x9A,0x99,0x96,0x95,0x6A,0x69,0x66,0x65,0x5A,0x59,0x56,0x55};
-const byte pre_sync[5]={0xff,0x00,0x33,0x55,0x53};
-const byte header_flags[16]={0x0f,0x0c,0x0d,0x0b,0x27,0x24,0x25,0x23,0x47,0x44,0x45,0x43,0x17,0x14,0x15,0x13};
+const byte manc_enc[16] = { 0xAA, 0xA9, 0xA6, 0xA5, 0x9A, 0x99, 0x96, 0x95, 0x6A, 0x69, 0x66, 0x65, 0x5A, 0x59, 0x56, 0x55 };
+const byte pre_sync[5] = { 0xFF, 0x00, 0x33, 0x55, 0x53 };
+const byte header_flags[16] = { 0x0F, 0x0C, 0x0D, 0x0B, 0x27, 0x24, 0x25, 0x23, 0x47, 0x44, 0x45, 0x43, 0x17, 0x14, 0x15, 0x13 };
 
 byte out_flags;
 byte out_len;
@@ -94,7 +94,7 @@ byte unpack_flags(byte header) {
 }
 
 byte pack_flags(byte flags) {
-	for (byte n=0; n < 16; n++) {
+	for (byte n = 0; n < 16; n++) {
 		if (header_flags[n] == flags) {
 			return n << 2;
 		}
@@ -106,61 +106,62 @@ byte pack_flags(byte flags) {
 volatile CircularBuffer<volatile byte, volatile byte, 255> circ_buffer; //circular buffer (FIFO)
 volatile byte send_buffer[128];
 
-byte pm=pmIdle;
-volatile byte sm=pmIdle;
+byte pm = pmIdle;
+volatile byte sm = pmIdle;
 
-byte bit_counter=0;
-byte byte_buffer=0;
+byte bit_counter = 0;
+byte byte_buffer = 0;
 
-boolean in_sync=false;
+boolean in_sync = false;
 #if !defined(SYNC_ON_32BITS)
-uint16_t sync_buffer=0;
+uint16_t sync_buffer = 0;
 #else
-uint32_t sync_buffer=0;
+uint32_t sync_buffer = 0;
 #endif
-boolean highnib=true;
+boolean highnib = true;
 boolean last_bit;
 byte bm;
 
-byte sp=0;
-byte op=0;
-byte pp=0;
+byte sp = 0;
+byte op = 0;
+byte pp = 0;
 
-byte check=0;
-byte pkt_pos=0;
-byte devidCount=0;
+byte check = 0;
+byte pkt_pos = 0;
+byte devidCount = 0;
 uint32_t devid;
 byte rssi;
 uint32_t src_devid;
-byte *pDev=(byte*)&devid;
+byte *pDev = (byte*)&devid;
 uint16_t cmd;
 char tmp[20];
 byte len;
-byte pos=3;
+byte pos = 3;
 char param[10];
 
 volatile char averageFrequencyOffset = 0; // use char for signed 8 bit type
 
 // Interrupt to receive data and find_sync_word
 void sync_clk_in() {
-	byte new_bit=(PIND & GDO0_PD); // sync data
+	byte new_bit = (PIND & GDO0_PD); // sync data
 
 	// keep our buffer rolling even when we're in sync
 	sync_buffer <<= 1;
-	if (new_bit)
+	if (new_bit) {
 		sync_buffer |= 1;
+	}
 
-	if (sync_buffer==SYNC_WORD) {
+	if (sync_buffer == SYNC_WORD) {
 		if (in_sync) {
 			// abort and restart
 			circ_buffer.push(maResync, true);
 		}
 		circ_buffer.push(maStart, true);
 
-		bit_counter=0;
-		byte_buffer=0;
-		bm=0x10;
-		in_sync=true;
+		bit_counter = 0;
+		byte_buffer = 0;
+		bm = 0x10;
+		in_sync = true;
 	} else if (in_sync) {
 		if (bit_counter > 0) { // Skip start bit
 			if (bit_counter < 9) {
@@ -172,12 +173,11 @@ void sync_clk_in() {
 					if (bm == 0x10) {
 						circ_buffer.push(byte_buffer); // we can not see raw 0x35 here as our buffer is already manchester decoded we rely on rejection of 0x35 as it is not manchester encoded to end our packet
 						byte_buffer = 0;
-					}
-					else if (!bm) {
+					} else if (!bm) {
 						bm = 0x01;
 					}
 				} else {
-					if (new_bit==last_bit) { // manchester encoding must always have 1 transition per bit pair
+					if (new_bit == last_bit) { // manchester encoding must always have 1 transition per bit pair
 						in_sync = false;
 						circ_buffer.push(maInvalid, true);
 						return;
