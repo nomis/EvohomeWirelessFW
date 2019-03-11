@@ -23,52 +23,48 @@
 
 //---------- constructor ----------------------------------------------------
 
-SPI::SPI()
-{
-   // initialize the SPI pins
-   pinMode(SCK_PIN, OUTPUT);
-   pinMode(MOSI_PIN, OUTPUT);
-   pinMode(MISO_PIN, INPUT);
-   pinMode(SS_PIN, OUTPUT);
+SPI::SPI() {
+	// initialize the SPI pins
+	pinMode(SCK_PIN, OUTPUT);
+	pinMode(MOSI_PIN, OUTPUT);
+	pinMode(MISO_PIN, INPUT);
+	pinMode(SS_PIN, OUTPUT);
 
-   // enable SPI Master, MSB, SPI mode 0, FOSC/4
-   mode(0);
+	// enable SPI Master, MSB, SPI mode 0, FOSC/4
+	mode(0);
 
-   digitalWrite(SS_PIN,HIGH);
-   digitalWrite(MOSI_PIN,LOW);
-   digitalWrite(SCK_PIN,HIGH);
-
+	digitalWrite(SS_PIN,HIGH);
+	digitalWrite(MOSI_PIN,LOW);
+	digitalWrite(SCK_PIN,HIGH);
 }
 
 //------------------ mode ---------------------------------------------------
 
-void SPI::mode(byte config)
-{
-   byte tmp;
+void SPI::mode(byte config) {
+	byte tmp;
 
-   // enable SPI master with configuration byte specified
-   SPCR = 0;
-   SPCR = (config & 0x7F) | (1<<SPE) | (1<<MSTR);
-   tmp = SPSR;
-   tmp = SPDR;
+	// enable SPI master with configuration byte specified
+	SPCR = 0;
+	SPCR = (config & 0x7F) | (1 << SPE) | (1 << MSTR);
+	tmp = SPSR;
+	tmp = SPDR;
 }
 
 //------------------ transfer -----------------------------------------------
 
-byte SPI::transfer(byte value)
-{
-   byte x;
-   SPDR = value;
-   while (!(SPSR & (1<<SPIF))) ;
-   x  = SPDR;
-   return x;
+byte SPI::transfer(byte value) {
+	byte x;
+	SPDR = value;
+	while (!(SPSR & (1 << SPIF))) ;
+	x  = SPDR;
+	return x;
 }
 
 
 //------------------ slave Select ---------------------------------------------
-byte SPI::slaveSelect(byte value)
-{
-   digitalWrite(SS_PIN,value);
+
+byte SPI::slaveSelect(byte value) {
+	digitalWrite(SS_PIN,value);
 }
 
 //---------- preinstantiate SPI object --------------------------------------

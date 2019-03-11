@@ -29,13 +29,12 @@
 #define MOSI_PIN  11
 #define SS_PIN    10
 
-class SPI
-{
+class SPI {
 public:
-   SPI(void);
-   void mode(byte);
-   byte transfer(byte);
-   byte slaveSelect(byte);
+	SPI(void);
+	void mode(byte);
+	byte transfer(byte);
+	byte slaveSelect(byte);
 };
 
 extern SPI Spi;

@@ -32,8 +32,7 @@
 CCX::CCX(){}
 
 // Power On Reset as described in  19.1.2 of cc1100 datasheet, tried APOR as described in 19.1.1 but that did not work :-(
-void CCX::PowerOnStartUp()
-{
+void CCX::PowerOnStartUp() {
    Spi.mode((1 << SPR1) | (1 << SPR0));//SPICLK=CPU/64
 
    // start manual Power On Reset
@@ -58,17 +57,15 @@ void CCX::PowerOnStartUp()
    while(digitalRead(MISO_PIN));
 
    Spi.slaveSelect(HIGH);
-
 }
 
-byte CCX::Read(byte addr,byte* data)
-{
+byte CCX::Read(byte addr, byte* data) {
 
    byte result;
 
    Spi.slaveSelect(LOW);
    // wait for MISO to go low
-   while(digitalRead(MISO_PIN));
+   while (digitalRead(MISO_PIN));
 
    result=Spi.transfer(addr | 0x80);
    *data=Spi.transfer(0);
@@ -84,12 +81,11 @@ byte CCX::ReadBurst(byte addr, byte* dataPtr, byte size)
 
    Spi.slaveSelect(LOW);
    // wait for MISO to go low
-   while(digitalRead(MISO_PIN));
+   while (digitalRead(MISO_PIN));
 
-   result=Spi.transfer(addr | 0xc0);
+   result = Spi.transfer(addr | 0xc0);
 
-   while(size)
-   {
+   while (size) {
       *dataPtr++ = Spi.transfer(0);
       size--;
    }
@@ -99,36 +95,33 @@ byte CCX::ReadBurst(byte addr, byte* dataPtr, byte size)
    return result;
 }
 
-byte CCX::Write(byte addr, byte dat)
-{
+byte CCX::Write(byte addr, byte dat) {
 
    byte result;
 
    Spi.slaveSelect(LOW);
    // wait for MISO to go low
-   while(digitalRead(MISO_PIN));
+   while (digitalRead(MISO_PIN));
 
-   result=Spi.transfer(addr);
-   result=Spi.transfer(dat);
+   result = Spi.transfer(addr);
+   result = Spi.transfer(dat);
 
    Spi.slaveSelect(HIGH);
 
    return result;
 }
 
-byte CCX::WriteBurst(byte addr, const byte* dataPtr, byte size)
-{
+byte CCX::WriteBurst(byte addr, const byte* dataPtr, byte size) {
 
    byte result;
 
    Spi.slaveSelect(LOW);
    // wait for MISO to go low
-   while(digitalRead(MISO_PIN));
+   while (digitalRead(MISO_PIN));
 
-   result=Spi.transfer(addr | 0x40);
+   result = Spi.transfer(addr | 0x40);
 
-   while(size)
-   {
+   while (size) {
       result = Spi.transfer(*dataPtr++);
       size--;
    }
@@ -138,16 +131,15 @@ byte CCX::WriteBurst(byte addr, const byte* dataPtr, byte size)
    return result;
 }
 
-byte CCX::Strobe(byte addr)
-{
+byte CCX::Strobe(byte addr) {
 
    byte result;
 
    Spi.slaveSelect(LOW);
    // wait for MISO to go low
-   while(digitalRead(MISO_PIN));
+   while (digitalRead(MISO_PIN));
 
-   result=Spi.transfer(addr);
+   result = Spi.transfer(addr);
 
    Spi.slaveSelect(HIGH);
 
@@ -155,61 +147,59 @@ byte CCX::Strobe(byte addr)
 }
 
 //configure registers of cc1100 making it work in specific mode
-void CCX::Setup(byte configId)
-{
+void CCX::Setup(byte configId) {
    byte reg;
    byte val;
    if (configId < CCX_NR_OF_CONFIGS)
-      for(byte i = 0; i< CCX_NR_OF_REGISTERS; i++){
-         reg=pgm_read_byte(&CCx_registers[i]);
-         val=pgm_read_byte(&CCx_registerSettings[configId][i]);//read flash data no problem
-         Write(reg,val);
-         //Serial.print(temp,HEX);
-         //Serial.print(" ");
+      for(byte i = 0; i< CCX_NR_OF_REGISTERS; i++) {
+         reg = pgm_read_byte(&CCx_registers[i]);
+         val = pgm_read_byte(&CCx_registerSettings[configId][i]); // read flash data no problem
+         Write(reg, val);
+         // Serial.print(temp,HEX);
+         // Serial.print(" ");
       }
 }
 
 
 // to aid debugging
 //#ifdef DEBUG
-void CCX::ReadSetup()
-{
+void CCX::ReadSetup() {
    byte reg;
    byte value;
-   for(byte i = 0; i< CCX_NR_OF_REGISTERS; i++){
-      reg=pgm_read_byte(&CCx_registers[i]);
-      Read(reg,&value);
-      Serial.print(reg,HEX);
+   for (byte i = 0; i < CCX_NR_OF_REGISTERS; i++){
+      reg = pgm_read_byte(&CCx_registers[i]);
+      Read(reg, &value);
+      Serial.print(reg, HEX);
       Serial.print(':');
-      Serial.println(value,HEX);
+      Serial.println(value, HEX);
    }
 }
 //#endif
 
-void CCX::setPA(byte configId,byte paIndex)
-{
-   byte PAval=pgm_read_byte(&CCx_paTable[configId][paIndex]);
-   CCx.Write(CCx_PATABLE,PAval);
+void CCX::setPA(byte configId, byte paIndex) {
+   byte PAval = pgm_read_byte(&CCx_paTable[configId][paIndex]);
+   CCx.Write(CCx_PATABLE, PAval);
 }
 
 
-void CCX::Mode(byte md){
+void CCX::Mode(byte md) {
 
 }
 
-byte CCX::NrOfConfigs(){
+byte CCX::NrOfConfigs() {
    return CCX_NR_OF_CONFIGS;
 }
 
-byte CCX::RSSIdecode(byte rssiEnc){
+byte CCX::RSSIdecode(byte rssiEnc) {
    byte rssi;
    byte rssiOffset=74;  // is actually dataRate dependant, but for simplicity assumed to be fixed.
 
    // RSSI is coded as 2's complement see section 17.3 RSSI of the cc1100 datasheet
-   if (rssiEnc >= 128)
-      rssi = (( rssiEnc - 256) >> 1) - rssiOffset;
-   else
+   if (rssiEnc >= 128) {
+      rssi = ((rssiEnc - 256) >> 1) - rssiOffset;
+   } else {
       rssi = (rssiEnc >> 1) - rssiOffset;
+   }
    return rssi;
 }
 
