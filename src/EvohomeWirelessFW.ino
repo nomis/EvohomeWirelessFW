@@ -105,13 +105,17 @@ struct recv_packet {
 	boolean ready;
 	uint8_t length;
 	enum marker status;
+	byte rssi;
+	char freqOffset;
 	byte data[128];
 };
-struct recv_packet recv_buffer[MAX_PACKETS] = { { false, 0, maInvalid, { 0 } } };
+struct recv_packet recv_buffer[MAX_PACKETS] = { { false, 0, maInvalid, 0, 0, { 0 } } };
 volatile uint8_t readIndex = 0;
 volatile uint8_t writeIndex = 0;
 volatile boolean available = false;
 volatile boolean read_rssi = false;
+volatile byte rssi;
+volatile char freqOffset;
 volatile byte send_buffer[128];
 
 byte pm = pmIdle;
@@ -138,7 +142,6 @@ byte check = 0;
 byte pkt_pos = 0;
 byte devidCount = 0;
 uint32_t devid;
-byte rssi;
 uint32_t src_devid;
 byte *pDev = (byte*)&devid;
 uint16_t cmd;
@@ -147,12 +150,16 @@ byte len;
 byte pos = 3;
 char param[10];
 
-volatile char averageFrequencyOffset = 0; // use char for signed 8 bit type
+char averageFrequencyOffset = 0; // use char for signed 8 bit type
 
 void finish_recv_buffer(enum marker status) {
 	if (recv_buffer[writeIndex].length > 0) {
 		recv_buffer[writeIndex].status = status;
 		recv_buffer[writeIndex].ready = true;
+		recv_buffer[writeIndex].rssi = rssi;
+		recv_buffer[writeIndex].freqOffset = freqOffset;
+		rssi = 0;
+		freqOffset = 0;
 		available = true;
 
 		writeIndex = (writeIndex + 1) % MAX_PACKETS;
@@ -308,9 +315,7 @@ void setup() {
 	attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
 }
 
-char estimatedFrequencyOffset;
-
-void handleFreqOffset(int ok) {
+void handleFreqOffset(char estimatedFrequencyOffset, int ok) {
 #if 0
 	if (ok) {
 		averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + estimatedFrequencyOffset);
@@ -348,13 +353,15 @@ void loop() {
 		sm = pmIdle;
 	}
 	if (read_rssi) {
-		CCx.Read(CCx_RSSI, &rssi);
-		CCx.Read(CCx_FREQEST, (byte*)&estimatedFrequencyOffset);
-		rssi = (rssi < 128) ? (rssi + 128) : (rssi - 128); // not the RSSI, but a scale of 0-255
+		byte rssi_tmp;
+
+		CCx.Read(CCx_RSSI, &rssi_tmp);
+		CCx.Read(CCx_FREQEST, (byte*)&freqOffset);
+		rssi = (rssi_tmp < 128) ? (rssi_tmp + 128) : (rssi_tmp - 128); // not the RSSI, but a scale of 0-255
 		read_rssi = false;
 	}
 	if (available) {
-		struct recv_packet packet = { false, 0, maInvalid, { 0 } };
+		struct recv_packet packet = { false, 0, maInvalid, 0, 0, { 0 } };
 
 		cli();
 		if (available) {
@@ -389,7 +396,7 @@ void loop() {
 				} else {
 					in_flags = unpack_flags(in_header);
 				}
-				sprintf(tmp, "%03u ", rssi);
+				sprintf(tmp, "%03u ", packet.rssi);
 				Serial.print(tmp);
 				// sprintf(tmp, "%02X-%02X: ", in, in_flags);
 				// Serial.print(tmp);
@@ -460,15 +467,15 @@ void loop() {
 			} else if (pkt_pos == pos + 4 + len) { // checksum
 				if (check == 0) {
 					Serial.println();
-					handleFreqOffset(1);
+					handleFreqOffset(packet.freqOffset, 1);
 				} else {
 					Serial.println(F("*CHK*"));
-					handleFreqOffset(0);
+					handleFreqOffset(packet.freqOffset, 0);
 				}
 				return;
 			} else {
 				Serial.println(F("*E-DATA*"));
-				handleFreqOffset(0);
+				handleFreqOffset(packet.freqOffset, 0);
 				return;
 			}
 			pkt_pos++;
@@ -484,7 +491,7 @@ void loop() {
 			Serial.println(F("*INCOMPLETE*OVERFLOW*"));
 		}
 
-		handleFreqOffset(0);
+		handleFreqOffset(packet.freqOffset, 0);
 	} else if (sm < pmSendReady) {
 		if (Serial.available()) {
 			char out = Serial.read();
