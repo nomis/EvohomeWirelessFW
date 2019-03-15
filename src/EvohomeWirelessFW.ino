@@ -493,6 +493,9 @@ void loop() {
 				}
 			} else if (pkt_pos == pos + 3) { // len
 				len = in;
+				if (cmd == 0xD403 && len == 0) {
+					len = 2;
+				}
 				sprintf(tmp, "%03hu ", len);
 				Serial.print(tmp);
 			} else if (pkt_pos <= pos + 3 + len) { // payload
@@ -502,7 +505,9 @@ void loop() {
 				if (check == 0) {
 					Serial.println();
 				} else {
-					Serial.println(F("*CHK*"));
+					Serial.print(F("*CHK*"));
+					sprintf(tmp, "+%02hX=%02hX", in, check);
+					Serial.println(tmp);
 				}
 				return;
 			} else {
