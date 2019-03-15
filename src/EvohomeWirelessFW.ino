@@ -60,13 +60,13 @@ enum progMode {
 };
 
 enum enflags {
-	enDev0 = 1,
-	enDev1 = enDev0 << 1,
-	enDev2 = enDev1 << 1,
-	enRQ = enDev2 << 1,
-	enRP = enRQ << 1,
-	enI = enRP << 1,
-	enW = enI << 1,
+	enDev0 = 0x01,
+	enDev1 = 0x02,
+	enDev2 = 0x04,
+	enRQ = 0x08,
+	enRP = 0x10,
+	enI = 0x20,
+	enW = 0x40,
 };
 
 enum marker {
