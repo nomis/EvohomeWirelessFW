@@ -48,6 +48,8 @@
 #define SYNC_WORD    ((uint32_t)0x59955595) // The 32 bit version of the synchronisation sequence
 #endif
 
+//#define DEBUG
+
 enum progMode {
 	pmIdle,
 	pmSendBadPacket,
@@ -118,7 +120,9 @@ byte map_dev(byte devices) {
 
 struct recv_packet {
 	int8_t index;
+#ifdef DEBUG
 	uint32_t timestamp;
+#endif
 	boolean ready;
 	uint8_t length;
 	enum marker status;
@@ -126,7 +130,7 @@ struct recv_packet {
 	byte data[128];
 	struct recv_packet *next;
 };
-struct recv_packet recv_buffer[MAX_PACKETS] = { { 0, 0, false, 0, maInvalid, 0, { 0 }, NULL } };
+struct recv_packet recv_buffer[MAX_PACKETS];
 struct recv_packet *head;
 struct recv_packet *tail;
 struct recv_packet *write;
@@ -200,7 +204,9 @@ void finish_recv_buffer(enum marker status) {
 	in_sync = false;
 
 	if (write->length > 0) {
+#ifdef DEBUG
 		write->timestamp = micros();
+#endif
 		write->status = status;
 		write->ready = true;
 		write->rssi = rssi;
@@ -407,7 +413,7 @@ void loop() {
 		read_rssi = false;
 	}
 	if (available) {
-		struct recv_packet packet = { 0, 0, false, 0, maInvalid, 0, { 0 }, NULL };
+		struct recv_packet packet;
 
 		if (recv_buffer[readIndex].ready) {
 			memcpy(&packet, &recv_buffer[readIndex], offsetof(struct recv_packet, data) + recv_buffer[readIndex].length);
@@ -423,12 +429,14 @@ void loop() {
 			return;
 		}
 
+#ifdef DEBUG
 		Serial.print("# timestamp=");
 		Serial.print(packet.timestamp, DEC);
 		Serial.print(" index=");
 		Serial.print(packet.index, DEC);
 		Serial.print(" age=");
 		Serial.println(micros() - packet.timestamp, DEC);
+#endif
 
 		check = 0;
 		pkt_pos = 0;
