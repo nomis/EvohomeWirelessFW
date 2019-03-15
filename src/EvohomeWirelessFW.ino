@@ -1,5 +1,6 @@
 // EvohomeWirelessFW - RFBee firmware for evohome wireless communications
 // Copyright (c) 2015 Hydrogenetic
+// Copyright (c) 2019 Simon Arlott
 //
 // based on HoneyCommLite - Alternative RFBee firmware to communicate with
 //                 Evohome / Hometronix / CM67z and other Honeywell 868MHz based RF devices.
@@ -25,13 +26,10 @@
 
 // Compile for RFbee using board: Arduino Pro or Pro Mini (3.3V, 8MHz) w/ATmega 168
 
-//some interesting notes on optimisation...
-//http://blog.kriegsman.org/2013/12/01/optimizing-10-lines-of-arduino-code-youre-wrong-so-am-i/
-
 #include "CCx.h"
 #include "CCxCfg.h"
 
-#define VERSION_NO "0.9alpha"
+#define VERSION_NO "1.0"
 
 #define SYNC_ON_32BITS
 
@@ -362,7 +360,7 @@ void setup() {
 	Serial.begin(250000);
 
 	Serial.println(F("##############################################################"));
-	Serial.println(F("# EvohomeWirelessFW v" VERSION_NO " Copyright (c) 2015 Hydrogenetic"));
+	Serial.println(F("# EvohomeWirelessFW v" VERSION_NO));
 	Serial.println(F("# Licensed under GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>"));
 
 	head = &recv_buffer[0];
