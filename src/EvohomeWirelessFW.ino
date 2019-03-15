@@ -44,7 +44,7 @@
                       // using the knowledge that the sync bytes after the preamble are 0xFF 0x00 0x33 0x55 0x53,
                       // that the values are sent LSB first and start bit = 0 and stop bit = 1 we create the 32 bit sync value
 #if !defined(SYNC_ON_32BITS)
-#define SYNC_WORD     (uint16_t)0x5595//This is the last 2 bytes of the preamble / sync words..on its own it can be confused with the end of block when the last bit of the checksum is 0 (the following 0x55 pattern is then converted to 0xFF)
+#define SYNC_WORD     (uint16_t)0x5595 // This is the last 2 bytes of the preamble / sync words..on its own it can be confused with the end of block when the last bit of the checksum is 0 (the following 0x55 pattern is then converted to 0xFF)
 #else
 #undef SYNC_WORD
 #define SYNC_WORD    ((uint32_t)0x59955595) // The 32 bit version of the synchronisation sequence
@@ -59,14 +59,14 @@ enum progMode {
 	pmSendFinished,
 };
 
-enum enflags{
-	enDev0=1,
-	enDev1=enDev0<<1,
-	enDev2=enDev1<<1,
-	enRQ=enDev2<<1,
-	enRP=enRQ<<1,
-	enI=enRP<<1,
-	enW=enI<<1,
+enum enflags {
+	enDev0 = 1,
+	enDev1 = enDev0 << 1,
+	enDev2 = enDev1 << 1,
+	enRQ = enDev2 << 1,
+	enRP = enRQ << 1,
+	enI = enRP << 1,
+	enW = enI << 1,
 };
 
 enum marker {
@@ -286,7 +286,7 @@ void sync_clk_out() {
 			if (out_flags < 5) {
 				byte_buffer = 0x55;
 				out_flags++;
-			} else if (pp<5) {
+			} else if (pp < 5) {
 				byte_buffer = pre_sync[pp++];
 			} else {
 				if (sp<op) {
@@ -330,7 +330,7 @@ void sync_clk_out() {
 
 // Setup
 void setup() {
-	delay(200); //probably not a bad idea to wait until power etc. have stabilised a little
+	delay(200); // probably not a bad idea to wait until power etc. have stabilised a little
 
 	// Power up and configure the CC1101
 	CCx.PowerOnStartUp();
@@ -425,7 +425,7 @@ void loop() {
 			check += in;
 			if (pkt_pos == 0) {
 				in_header = in;
-				if ((in & 0xC0) || (in & 3) == 3) { //we don't recognise a header when 2 high reserved bits are set or both parameters bits are set simultaneously (we only have room for 1 parameter in our output - need more feedback could this be a parameter mode?)
+				if ((in & 0xC0) || (in & 3) == 3) { // we don't recognise a header when 2 high reserved bits are set or both parameters bits are set simultaneously (we only have room for 1 parameter in our output - need more feedback could this be a parameter mode?)
 					in_flags = 0;
 				} else {
 					in_flags = unpack_flags(in_header);
@@ -479,10 +479,10 @@ void loop() {
 					if (!(in_flags & enDev2)) {
 						Serial.print("--:------ ");
 					}
-					pDev = (byte*)&devid + 2;//platform specific
+					pDev = (byte*)&devid + 2; // platform specific
 				}
 			} else if (pkt_pos <= pos + 2) { // command
-				if (pkt_pos == 4) { //Skip the value
+				if (pkt_pos == 4) { // Skip the value
 					pos++;
 				} else if (pkt_pos == pos + 1) {
 					cmd = in << 8;
@@ -609,18 +609,18 @@ void loop() {
 			}
 		}
 	} else if (sm == pmSendReady && !in_sync) {
-			detachInterrupt(GDO2_INT);
-			while (((CCx.Write(CCx_SIDLE, 0) >> 4) & 7) != 0);
-			while (((CCx.Write(CCx_STX, 0) >> 4) & 7) != 2); // will calibrate when going to tx
-			pinMode(2, OUTPUT);
-			sm = pmSendActive;
-			highnib = true;
-			bit_counter = 0;
-			sp = 0;
-			pp = 0;
-			out_flags = 0; // reuse for preamble counter
-			finish_recv_buffer(maComplete);
-			attachInterrupt(GDO2_INT, sync_clk_out, RISING);
+		detachInterrupt(GDO2_INT);
+		while (((CCx.Write(CCx_SIDLE, 0) >> 4) & 7) != 0);
+		while (((CCx.Write(CCx_STX, 0) >> 4) & 7) != 2); // will calibrate when going to tx
+		pinMode(2, OUTPUT);
+		sm = pmSendActive;
+		highnib = true;
+		bit_counter = 0;
+		sp = 0;
+		pp = 0;
+		out_flags = 0; // reuse for preamble counter
+		finish_recv_buffer(maComplete);
+		attachInterrupt(GDO2_INT, sync_clk_out, RISING);
 	}
 }
 
