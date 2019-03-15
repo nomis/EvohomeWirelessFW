@@ -99,23 +99,26 @@ byte pack_flags(byte flags) {
 	return 0xFF;
 }
 
-#define MAX_PACKETS 4
+#define MAX_PACKETS 6
 
 struct recv_packet {
+	int8_t index;
+	uint32_t timestamp;
 	boolean ready;
 	uint8_t length;
 	enum marker status;
 	byte rssi;
-	char freqOffset;
 	byte data[128];
+	struct recv_packet *next;
 };
-struct recv_packet recv_buffer[MAX_PACKETS] = { { false, 0, maInvalid, 0, 0, { 0 } } };
-volatile uint8_t readIndex = 0;
-volatile uint8_t writeIndex = 0;
+struct recv_packet recv_buffer[MAX_PACKETS] = { { 0, 0, false, 0, maInvalid, 0, { 0 }, NULL } };
+struct recv_packet *head;
+struct recv_packet *tail;
+struct recv_packet *write;
+volatile int8_t readIndex = -1;
 volatile boolean available = false;
 volatile boolean read_rssi = false;
 volatile byte rssi;
-volatile char freqOffset;
 volatile byte send_buffer[128];
 
 byte pm = pmIdle;
@@ -152,25 +155,55 @@ char param[10];
 
 char averageFrequencyOffset = 0; // use char for signed 8 bit type
 
-void finish_recv_buffer(enum marker status) {
-	if (recv_buffer[writeIndex].length > 0) {
-		recv_buffer[writeIndex].status = status;
-		recv_buffer[writeIndex].ready = true;
-		recv_buffer[writeIndex].rssi = rssi;
-		recv_buffer[writeIndex].freqOffset = freqOffset;
-		rssi = 0;
-		freqOffset = 0;
-		available = true;
+uint8_t timer_interrupts = 0;
 
-		writeIndex = (writeIndex + 1) % MAX_PACKETS;
-		if (recv_buffer[writeIndex].ready) {
-			recv_buffer[writeIndex].ready = false;
-			readIndex = (readIndex + 1) % MAX_PACKETS;
+SIGNAL(TIMER0_COMPA_vect) {
+	// Only run after being idle for 5ms
+	if (timer_interrupts >= 5 && !available) {
+		// When reading is finished, put the buffer on the end of the list
+		if (readIndex != -1) {
+			tail->next = &recv_buffer[readIndex];
+			tail = &recv_buffer[readIndex];
+			// tail->next was set to NULL by the read process
+			readIndex = -1;
 		}
-		recv_buffer[writeIndex].length = 0;
-	}
 
+		// Take the top off the list for reading
+		if (head->ready) {
+			readIndex = head->index;
+			head = head->next;
+			available = true;
+		}
+
+		timer_interrupts = 0;
+	} else {
+		timer_interrupts++;
+	}
+}
+
+void finish_recv_buffer(enum marker status) {
 	in_sync = false;
+
+	if (write->length > 0) {
+		write->timestamp = micros();
+		write->status = status;
+		write->ready = true;
+		write->rssi = rssi;
+		rssi = 0;
+
+		write = write->next;
+		if (write == NULL) {
+			write = head;
+			head = head->next;
+
+			tail->next = write;
+			tail = write;
+			tail->next = NULL;
+
+			write->ready = false;
+			write->length = 0;
+		}
+	}
 }
 
 // Interrupt to receive data and find_sync_word
@@ -194,6 +227,8 @@ void sync_clk_in() {
 		bm = 0x10;
 		in_sync = true;
 		read_rssi = true;
+
+		timer_interrupts = 0;
 	} else if (in_sync) {
 		if (bit_counter > 0) { // Skip start bit
 			if (bit_counter < 9) {
@@ -203,12 +238,12 @@ void sync_clk_in() {
 					}
 					bm <<= 1;
 					if (bm == 0x10) {
-						if (recv_buffer[writeIndex].length == sizeof(recv_buffer[writeIndex].data)) {
+						if (write->length == sizeof(write->data)) {
 							finish_recv_buffer(maOverflow);
 							return;
 						}
 						// we can not see raw 0x35 here as our buffer is already manchester decoded we rely on rejection of 0x35 as it is not manchester encoded to end our packet
-						recv_buffer[writeIndex].data[recv_buffer[writeIndex].length++] = byte_buffer;
+						write->data[write->length++] = byte_buffer;
 						byte_buffer = 0;
 					} else if (!bm) {
 						bm = 0x01;
@@ -235,6 +270,8 @@ void sync_clk_in() {
 			}
 		}
 		bit_counter++;
+
+		timer_interrupts = 0;
 	}
 }
 
@@ -257,8 +294,8 @@ void sync_clk_out() {
 					if (highnib) {
 						byte_buffer = manc_enc[(byte_buffer >> 4) & 0xF];
 					} else {
-						if (recv_buffer[writeIndex].length < sizeof(recv_buffer[writeIndex].data)) {
-							recv_buffer[writeIndex].data[recv_buffer[writeIndex].length++] = byte_buffer;
+						if (write->length < sizeof(write->data)) {
+							write->data[write->length++] = byte_buffer;
 						}
 						byte_buffer = manc_enc[byte_buffer & 0xF];
 						sp++;
@@ -311,31 +348,25 @@ void setup() {
 	Serial.println(F("# EvohomeWirelessFW v" VERSION_NO " Copyright (c) 2015 Hydrogenetic"));
 	Serial.println(F("# Licensed under GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>"));
 
+	head = &recv_buffer[0];
+	tail = &recv_buffer[MAX_PACKETS - 1];
+	write = head;
+	for (uint8_t i = 0; i < MAX_PACKETS; i++) {
+		recv_buffer[i].index = i;
+		if (i == MAX_PACKETS - 1) {
+			recv_buffer[i].next = NULL;
+		} else {
+			recv_buffer[i].next = &recv_buffer[i + 1];
+		}
+	}
+
+	// Set up a regular timer interrupt to maintain the read buffer
+	OCR0A = 0x01;
+	TIMSK0 |= _BV(OCIE0A);
+
 	// Attach the find_sync_word interrupt function to the
 	// falling edge of the serial clock connected to INT(1)
 	attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
-}
-
-void handleFreqOffset(struct recv_packet *packet, int ok) {
-#if 0
-	if (ok) {
-		averageFrequencyOffset = filter(averageFrequencyOffset, averageFrequencyOffset + packet->freqOffset);
-		CCx.Write(CCx_FSCTRL0, averageFrequencyOffset);
-	}
-#endif
-
-	if (src_devid != 0) {
-		sprintf(tmp,"# %02hu:%06lu", (uint8_t)(src_devid >> 18) & 0x3F, src_devid & 0x3FFFF);
-		Serial.print(tmp);
-		Serial.print(F(" RSSI="));
-		Serial.print(packet->rssi, DEC);
-		Serial.print(F(" FREQEST="));
-		Serial.println(packet->freqOffset, DEC);
-#if 0
-		Serial.print(F(" FACCT="));
-		Serial.println(averageFrequencyOffset, DEC);
-#endif
-	}
 }
 
 // Main loop
@@ -357,30 +388,32 @@ void loop() {
 		byte rssi_tmp;
 
 		CCx.Read(CCx_RSSI, &rssi_tmp);
-		CCx.Read(CCx_FREQEST, (byte*)&freqOffset);
 		rssi = (rssi_tmp < 128) ? (rssi_tmp + 128) : (rssi_tmp - 128); // not the RSSI, but a scale of 0-255
 		read_rssi = false;
 	}
 	if (available) {
-		struct recv_packet packet = { false, 0, maInvalid, 0, 0, { 0 } };
+		struct recv_packet packet = { 0, 0, false, 0, maInvalid, 0, { 0 }, NULL };
 
-		cli();
-		if (available) {
-			if (recv_buffer[readIndex].ready) {
-				memcpy(&packet, &recv_buffer[readIndex], offsetof(struct recv_packet, data) + recv_buffer[readIndex].length);
-				recv_buffer[readIndex].ready = false;
-				readIndex = (readIndex + 1) % MAX_PACKETS;
-
-				if (!recv_buffer[readIndex].ready) {
-					available = false;
-				}
-			}
+		if (recv_buffer[readIndex].ready) {
+			memcpy(&packet, &recv_buffer[readIndex], offsetof(struct recv_packet, data) + recv_buffer[readIndex].length);
+			recv_buffer[readIndex].ready = false;
+			recv_buffer[readIndex].length = 0;
+			recv_buffer[readIndex].next = NULL;
+			available = false;
+		} else {
+			return;
 		}
-		sei();
 
 		if (!packet.ready) {
 			return;
 		}
+
+		Serial.print("# timestamp=");
+		Serial.print(packet.timestamp, DEC);
+		Serial.print(" index=");
+		Serial.print(packet.index, DEC);
+		Serial.print(" age=");
+		Serial.println(micros() - packet.timestamp, DEC);
 
 		check = 0;
 		pkt_pos = 0;
@@ -468,15 +501,12 @@ void loop() {
 			} else if (pkt_pos == pos + 4 + len) { // checksum
 				if (check == 0) {
 					Serial.println();
-					handleFreqOffset(&packet, 1);
 				} else {
 					Serial.println(F("*CHK*"));
-					handleFreqOffset(&packet, 0);
 				}
 				return;
 			} else {
 				Serial.println(F("*E-DATA*"));
-				handleFreqOffset(&packet, 0);
 				return;
 			}
 			pkt_pos++;
@@ -491,8 +521,6 @@ void loop() {
 		} else if (packet.status == maOverflow) {
 			Serial.println(F("*INCOMPLETE*OVERFLOW*"));
 		}
-
-		handleFreqOffset(&packet, 0);
 	} else if (sm < pmSendReady) {
 		if (Serial.available()) {
 			char out = Serial.read();
