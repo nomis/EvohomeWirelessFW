@@ -77,14 +77,14 @@ static const byte CCx_registerSettings[CCX_NR_OF_CONFIGS][CCX_NR_OF_REGISTERS] P
 		0x00, // CCx_PKTCTRL1
 		0x12, // CCx_PKTCTRL0 (Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins)
 		0x06, // CCx_FSCTRL1
-		0x21, // CCx_FREQ2
+		0x21, // CCx_FREQ2 (channel frequency=868.3MHz)
 		0x65, // CCx_FREQ1
 		0x6c, // CCx_FREQ0
-		0x6a, // CCx_MDMCFG4
+		0xaa, // CCx_MDMCFG4 (CHANBW_E=2 CHANBW_M=2 channel bandwidth=135kHz DRATE_E=10)
 		0x83, // CCx_MDMCFG3 (DRATE_M=131 data rate=38,383.4838867Hz)
 		0x10, // CCx_MDMCFG2 (GFSK No Sync Word / Preamable)
 		0x22, // CCx_MDMCFG1 (CHANSPC_E=2 NUM_PREAMBLE=4 FEC_EN=0)
-		0x50, // CCx_DEVIATN
+		0x57, // CCx_DEVIATN (DEVIATION_E=5 DEVIATION_M=7 deviation=95.2kHz)
 		0x07, // CCx_MCSM2
 		0x30, // CCx_MCSM1 (0x30=110000 defaults to idle for RX,TX CCA_MODE=11  If RSSI below threshold unless currently receiving a packet)
 		0x18, // CCx_MCSM0 (0x18=11000 FS_AUTOCAL=1 When going from IDLE to RX or TX)
