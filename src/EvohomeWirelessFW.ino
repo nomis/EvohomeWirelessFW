@@ -59,14 +59,23 @@ enum progMode {
 	pmSendFinished,
 };
 
-enum enflags {
+#define TYPE_MASK 0x3
+#define TYPE_SHIFT 4
+
+enum enType {
+	enRQ,
+	enI,
+	enW,
+	enRP,
+};
+
+#define DEV_MASK 0x3
+#define DEV_SHIFT 2
+
+enum enDev {
 	enDev0 = 0x01,
 	enDev1 = 0x02,
 	enDev2 = 0x04,
-	enRQ = 0x08,
-	enRP = 0x10,
-	enI = 0x20,
-	enW = 0x40,
 };
 
 enum marker {
@@ -78,22 +87,30 @@ enum marker {
 
 const byte manc_enc[16] = { 0xAA, 0xA9, 0xA6, 0xA5, 0x9A, 0x99, 0x96, 0x95, 0x6A, 0x69, 0x66, 0x65, 0x5A, 0x59, 0x56, 0x55 };
 const byte pre_sync[5] = { 0xFF, 0x00, 0x33, 0x55, 0x53 };
-const byte header_flags[16] = { 0x0F, 0x0C, 0x0D, 0x0B, 0x27, 0x24, 0x25, 0x23, 0x47, 0x44, 0x45, 0x43, 0x17, 0x14, 0x15, 0x13 };
+const uint8_t dev_map[4] = {
+	enDev0 | enDev1 | enDev2,
+	                  enDev2,
+	enDev0 |          enDev2,
+	enDev0 | enDev1,
+};
 
-byte out_flags;
+byte out_preamble;
+byte out_type;
+byte out_devices;
 byte out_len;
 
 byte in_header;
-byte in_flags;
+byte in_type;
+byte in_devices;
 
-byte unpack_flags(byte header) {
-	return header_flags[(header >> 2) & 0x0F];
+byte unmap_dev(byte header) {
+	return dev_map[(header >> DEV_SHIFT) & DEV_MASK];
 }
 
-byte pack_flags(byte flags) {
-	for (byte n = 0; n < 16; n++) {
-		if (header_flags[n] == flags) {
-			return n << 2;
+byte map_dev(byte devices) {
+	for (byte n = 0; n < sizeof(dev_map); n++) {
+		if (dev_map[n] == devices) {
+			return n << DEV_SHIFT;
 		}
 	}
 	return 0xFF;
@@ -283,9 +300,9 @@ void sync_clk_out() {
 	if (bit_counter < 9) {
 		if (!bit_counter) {
 			PORTD &= ~GDO0_PD;
-			if (out_flags < 5) {
+			if (out_preamble < 5) {
 				byte_buffer = 0x55;
-				out_flags++;
+				out_preamble++;
 			} else if (pp < 5) {
 				byte_buffer = pre_sync[pp++];
 			} else {
@@ -426,37 +443,37 @@ void loop() {
 			if (pkt_pos == 0) {
 				in_header = in;
 				if ((in & 0xC0) || (in & 3) == 3) { // we don't recognise a header when 2 high reserved bits are set or both parameters bits are set simultaneously (we only have room for 1 parameter in our output - need more feedback could this be a parameter mode?)
-					in_flags = 0;
-				} else {
-					in_flags = unpack_flags(in_header);
-				}
-				sprintf(tmp, "%03u ", packet.rssi);
-				Serial.print(tmp);
-				// sprintf(tmp, "%02X-%02X: ", in, in_flags);
-				// Serial.print(tmp);
-				if (in_flags & enI) {
-					Serial.print(" I ");
-				} else if (in_flags & enRQ) {
-					Serial.print("RQ ");
-				} else if (in_flags & enRP) {
-					Serial.print("RP ");
-				} else if (in_flags & enW) {
-					Serial.print(" W ");
-				} else {
 					Serial.print(F("*Unknown header=0x"));
 					Serial.println(in, HEX);
 					return;
 				}
+
+				sprintf(tmp, "%03u ", packet.rssi);
+				Serial.print(tmp);
+
+				in_type = (in >> TYPE_SHIFT) & TYPE_MASK;
+				in_devices = unmap_dev(in);
+
+				if (in_type == enI) {
+					Serial.print(" I ");
+				} else if (in_type == enRQ) {
+					Serial.print("RQ ");
+				} else if (in_type == enRP) {
+					Serial.print("RP ");
+				} else if (in_type == enW) {
+					Serial.print(" W ");
+				} else {
+				}
 				Serial.print("--- "); // parameter not supported... not been observed yet
 				src_devid = 0;
-				devidCount = (in_flags & enDev0) ? 1 : 0;
-				if (in_flags & enDev1) devidCount++;
-				if (in_flags & enDev2) devidCount++;
+				devidCount = (in_devices & enDev0) ? 1 : 0;
+				if (in_devices & enDev1) devidCount++;
+				if (in_devices & enDev2) devidCount++;
 				pDev = (byte*)&devid + 2; // platform specific
 			} else if (pkt_pos <= pos) { // ids, support 1 or 2 atm (1, 2 or 3 ids are valid)
 				*pDev-- = in; // platform specific
 				if (pkt_pos == 3) {
-					if (!(in_flags & enDev0) && !(in_flags & enDev1)) {
+					if (!(in_devices & enDev0) && !(in_devices & enDev1)) {
 						Serial.print("--:------ --:------ ");
 					} else {
 						pos += 3;
@@ -468,7 +485,7 @@ void loop() {
 					Serial.print(tmp);
 					pDev = (byte*)&devid + 2; // platform specific
 				} else if (pkt_pos == 6) {
-					if (!(in_flags & enDev1)) {
+					if (!(in_devices & enDev1)) {
 						Serial.print("--:------ ");
 					}
 					if (src_devid == 0) {
@@ -476,7 +493,7 @@ void loop() {
 					}
 					sprintf(tmp,"%02hu:%06lu ", (uint8_t)(devid >> 18) & 0x3F, devid & 0x3FFFF);
 					Serial.print(tmp);
-					if (!(in_flags & enDev2)) {
+					if (!(in_devices & enDev2)) {
 						Serial.print("--:------ ");
 					}
 					pDev = (byte*)&devid + 2; // platform specific
@@ -548,21 +565,24 @@ void loop() {
 					if (pp) {
 						param[pp] = 0;
 						if (sp == 0) {
-							out_flags = 0;
+							out_devices = 0;
 							if (!strcmp(param, "I")) {
-								out_flags |= enI;
+								out_type = enI;
 							} else if (!strcmp(param, "RQ")) {
-								out_flags |= enRQ;
+								out_type = enRQ;
 							} else if (!strcmp(param, "RP")) {
-								out_flags |= enRP;
+								out_type = enRP;
 							} else if (!strcmp(param, "W")) {
-								out_flags |= enW;
+								out_type = enW;
+							} else {
+								sm = pmSendBadPacket;
+								return;
 							}
 							send_buffer[op++] = 0;
 						} else if (sp == 1) {
 						} else if (sp >= 2 && sp <= 4) {
 							if (param[0] != '-') {
-								out_flags |= 1 << (sp - 2);
+								out_devices |= 1 << (sp - 2);
 								uint8_t idType;
 								uint32_t idAddr;
 								sscanf(param, "%02hhu:%06lu", &idType, &idAddr);
@@ -572,11 +592,12 @@ void loop() {
 								send_buffer[op++] = idAddr & 0xFF;
 							}
 						} else if (sp == 5) {
-							send_buffer[0] |= pack_flags(out_flags);
+							send_buffer[0] |= map_dev(out_devices);
 							if (send_buffer[0] == 0xFF) {
 								sm = pmSendBadPacket;
 								return;
 							}
+							send_buffer[0] |= out_type << TYPE_SHIFT;
 							uint16_t cmd;
 							sscanf(param, "%04X", &cmd);
 							send_buffer[op++] = (cmd >> 8) & 0xFF;
@@ -618,7 +639,7 @@ void loop() {
 		bit_counter = 0;
 		sp = 0;
 		pp = 0;
-		out_flags = 0; // reuse for preamble counter
+		out_preamble = 0;
 		finish_recv_buffer(maComplete);
 		attachInterrupt(GDO2_INT, sync_clk_out, RISING);
 	}
