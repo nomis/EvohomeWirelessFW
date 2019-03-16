@@ -78,6 +78,9 @@ enum enDev {
 	enDev2 = 0x04,
 };
 
+#define PARAM_MASK 0x3
+#define PARAM_SHIFT 0
+
 enum marker {
 	maComplete,
 	maResync,
@@ -102,6 +105,7 @@ byte out_len;
 byte in_header;
 byte in_type;
 byte in_devices;
+byte in_params;
 
 byte unmap_dev(byte header) {
 	return dev_map[(header >> DEV_SHIFT) & DEV_MASK];
@@ -448,7 +452,7 @@ void loop() {
 			check += in;
 			if (pkt_pos == 0) {
 				in_header = in;
-				if ((in & 0xC0) || (in & 3) == 3) { // we don't recognise a header when 2 high reserved bits are set or both parameters bits are set simultaneously (we only have room for 1 parameter in our output - need more feedback could this be a parameter mode?)
+				if (in & 0xC0) {
 					Serial.print(F("*Unknown header=0x"));
 					Serial.println(in, HEX);
 					return;
@@ -459,6 +463,7 @@ void loop() {
 
 				in_type = (in >> TYPE_SHIFT) & TYPE_MASK;
 				in_devices = unmap_dev(in);
+				in_params = (in >> PARAM_SHIFT) & PARAM_MASK;
 
 				if (in_type == enI) {
 					Serial.print(" I ");
@@ -504,6 +509,13 @@ void loop() {
 					}
 					pDev = (byte*)&devid + 2; // platform specific
 				}
+			} else if (pkt_pos <= pos + 2 && in_params != 0) { // params (0, 1 or 2)
+				if (in_params & 2) {
+					in_params &= ~2;
+				} else if (in_params & 1) {
+					in_params &= ~1;
+				}
+				pos++;
 			} else if (pkt_pos <= pos + 2) { // command
 				if (pkt_pos == pos + 1) {
 					cmd = in << 8;
