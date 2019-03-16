@@ -505,9 +505,7 @@ void loop() {
 					pDev = (byte*)&devid + 2; // platform specific
 				}
 			} else if (pkt_pos <= pos + 2) { // command
-				if (pkt_pos == 4) { // Skip the value
-					pos++;
-				} else if (pkt_pos == pos + 1) {
+				if (pkt_pos == pos + 1) {
 					cmd = in << 8;
 				} else if (pkt_pos == pos + 2) {
 					cmd |= in;
@@ -516,9 +514,6 @@ void loop() {
 				}
 			} else if (pkt_pos == pos + 3) { // len
 				len = in;
-				if (cmd == 0xD403 && len == 0) {
-					len = 2;
-				}
 				sprintf(tmp, "%03hu ", len);
 				Serial.print(tmp);
 			} else if (pkt_pos <= pos + 3 + len) { // payload
