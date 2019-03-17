@@ -123,6 +123,9 @@ struct recv_packet {
 	uint8_t length;
 	enum marker status;
 	uint8_t rssi;
+#ifdef DEBUG
+	int8_t freqOffset;
+#endif
 	uint8_t data[128];
 	struct recv_packet *next;
 };
@@ -135,7 +138,10 @@ static volatile int8_t readIndex = -1;
 static volatile boolean available = false;
 
 static volatile boolean read_rssi = false;
-static volatile byte rssi;
+static volatile uint8_t rssi;
+#ifdef DEBUG
+static volatile int8_t freqOffset;
+#endif
 
 static uint8_t send_buffer[128];
 static uint8_t send_length;
@@ -496,6 +502,9 @@ static void finish_recv_buffer(enum marker status) {
 		write->status = status;
 		write->ready = true;
 		write->rssi = rssi;
+#ifdef DEBUG
+		write->freqOffset = freqOffset;
+#endif
 
 		write = write->next;
 		if (write == NULL) {
@@ -716,6 +725,14 @@ void loop() {
 
 		CCx.Read(CCx_RSSI, &rssi_tmp);
 		rssi = (rssi_tmp < 128) ? (rssi_tmp + 128) : (rssi_tmp - 128); // not the RSSI, but a scale of 0-255
+
+#ifdef DEBUG
+		byte freq_tmp;
+
+		CCx.Read(CCx_FREQEST, &freq_tmp);
+		freqOffset = freq_tmp;
+#endif
+
 		read_rssi = false;
 	}
 	if (available) {
@@ -740,6 +757,8 @@ void loop() {
 		Serial.print(r_packet.timestamp, DEC);
 		Serial.print(F(" index="));
 		Serial.print(r_packet.index, DEC);
+		Serial.print(F(" freqOffset="));
+		Serial.print(r_packet.freqOffset, DEC);
 		Serial.print(F(" age="));
 		Serial.println(micros() - r_packet.timestamp, DEC);
 #endif
