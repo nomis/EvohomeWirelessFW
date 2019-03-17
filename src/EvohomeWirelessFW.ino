@@ -158,7 +158,6 @@ uint32_t sync_buffer = 0;
 #endif
 boolean highnib = true;
 boolean last_bit;
-byte bm;
 
 byte sp = 0;
 byte op = 0;
@@ -233,6 +232,7 @@ void finish_recv_buffer(enum marker status) {
 
 // Interrupt to receive data and find_sync_word
 void sync_clk_in() {
+	static byte byte_bit;
 	byte new_bit = (PIND & GDO0_PD); // sync data
 
 	// keep our buffer rolling even when we're in sync
@@ -249,7 +249,7 @@ void sync_clk_in() {
 
 		bit_counter = 0;
 		byte_buffer = 0;
-		bm = 0x10;
+		byte_bit = 0x10;
 		in_sync = true;
 		read_rssi = true;
 
@@ -259,10 +259,12 @@ void sync_clk_in() {
 			if (bit_counter < 9) {
 				if (bit_counter % 2) {
 					if (new_bit) {
-						byte_buffer |= bm;
+						byte_buffer |= byte_bit;
 					}
-					bm <<= 1;
-					if (bm == 0x10) {
+
+					// for each byte, byte_bit cycles through 0x10 0x20 0x40 0x80 (0x00) 0x01 0x02 0x04 0x08 (0x10)
+					byte_bit <<= 1;
+					if (byte_bit == 0x10) { // finished all 8 bits
 						if (write->length == sizeof(write->data)) {
 							finish_recv_buffer(maOverflow);
 							return;
@@ -270,8 +272,8 @@ void sync_clk_in() {
 						// we can not see raw 0x35 here as our buffer is already manchester decoded we rely on rejection of 0x35 as it is not manchester encoded to end our packet
 						write->data[write->length++] = byte_buffer;
 						byte_buffer = 0;
-					} else if (!bm) {
-						bm = 0x01;
+					} else if (byte_bit == 0x00) { // finished the high 4 bits, now do the low 4 bits
+						byte_bit = 0x01;
 					}
 				} else {
 					if (new_bit == last_bit) { // manchester encoding must always have 1 transition per bit pair
