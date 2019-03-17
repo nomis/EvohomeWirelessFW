@@ -232,7 +232,7 @@ static inline boolean decode_devices(struct decode_packet *packet, const uint8_t
 static inline boolean decode_params(struct decode_packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
 	for (uint8_t i = 0; i < 2; i++) {
 		if (packet->has_params & (2 >> i)) {
-			if (n + 1 < length) {
+			if (n >= length) {
 				return false;
 			}
 
