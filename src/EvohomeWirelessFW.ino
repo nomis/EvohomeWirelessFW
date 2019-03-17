@@ -172,6 +172,7 @@ struct packet {
 	uint32_t devices[3];
 	uint8_t params[2];
 	uint16_t command;
+	boolean command_read;
 	uint8_t length;
 	uint8_t length_read;
 	uint8_t check;
@@ -324,6 +325,8 @@ static inline boolean decode_command(struct packet *packet, const uint8_t *data,
 	packet->command |= data[n];
 	packet->check += data[n++];
 
+	packet->command_read = true;
+
 	return true;
 }
 
@@ -381,8 +384,12 @@ static inline void print_header(struct packet *packet) {
 		device_bit <<= 1;
 	}
 
-	sprintf(tmp, "%04X ",packet->command);
-	Serial.print(tmp);
+	if (packet->command_read) {
+		sprintf(tmp, "%04X ",packet->command);
+		Serial.print(tmp);
+	} else {
+		Serial.print("???? ");
+	}
 }
 
 static inline boolean decode_print_content(struct packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
