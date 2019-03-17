@@ -31,22 +31,19 @@
 
 #define VERSION_NO "1.1"
 
-#define SYNC_ON_32BITS
-
 #define GDO0_INT 0 // INT0(PD2) wired to GDO0 on CC1101
-#define GDO2_INT 1 // INT1(PD3) wired to GDO2 on CC1101 (CCx_IOCFG2==0x0B Serial Clock. Synchronous to the data in synchronous serial mode. In RX mode, data is set up on the falling edge by CC1101 when GDOx_INV=0. In TX mode, data is sampled by CC1101 on the rising edge of the serial clock when GDOx_INV=0.)
+#define GDO2_INT 1 // INT1(PD3) wired to GDO2 on CC1101
+// (CCx_IOCFG2==0x0B Serial Clock. Synchronous to the data in synchronous serial mode.
+// In RX mode, data is set up on the falling edge by CC1101 when GDOx_INV=0.
+// In TX mode, data is sampled by CC1101 on the rising edge of the serial clock when GDOx_INV=0.)
 
-#define GDO0_PD 4 // PD2(INT0) wired to GDO0 on CC1101 (CCx_IOCFG0==0x0C Serial Synchronous Data Output. Used for synchronous serial mode.)
+#define GDO0_PD 4 // PD2(INT0) wired to GDO0 on CC1101
+// (CCx_IOCFG0==0x0C Serial Synchronous Data Output. Used for synchronous serial mode.)
 #define GDO2_PD 8 // PD3(INT1) wired to GDO2 on CC1101
 
-                      // using the knowledge that the sync bytes after the preamble are 0xFF 0x00 0x33 0x55 0x53,
-                      // that the values are sent LSB first and start bit = 0 and stop bit = 1 we create the 32 bit sync value
-#if !defined(SYNC_ON_32BITS)
-#define SYNC_WORD     (uint16_t)0x5595 // This is the last 2 bytes of the preamble / sync words..on its own it can be confused with the end of block when the last bit of the checksum is 0 (the following 0x55 pattern is then converted to 0xFF)
-#else
-#undef SYNC_WORD
-#define SYNC_WORD    ((uint32_t)0x59955595) // The 32 bit version of the synchronisation sequence
-#endif
+// using the knowledge that the sync bytes after the preamble are 0xFF 0x00 0x33 0x55 0x53,
+// that the values are sent LSB first and start bit = 0 and stop bit = 1 we create the 32 bit sync value
+#define SYNC_WORD    ((uint32_t)0x59955595)
 
 //#define DEBUG
 
@@ -93,22 +90,20 @@ enum marker {
 	maOverflow,
 };
 
-const byte manc_enc[16] = { 0xAA, 0xA9, 0xA6, 0xA5, 0x9A, 0x99, 0x96, 0x95, 0x6A, 0x69, 0x66, 0x65, 0x5A, 0x59, 0x56, 0x55 };
-const byte pre_sync[5] = { 0xFF, 0x00, 0x33, 0x55, 0x53 };
-const uint8_t dev_map[4] = {
+static const byte manc_enc[16] = { 0xAA, 0xA9, 0xA6, 0xA5, 0x9A, 0x99, 0x96, 0x95, 0x6A, 0x69, 0x66, 0x65, 0x5A, 0x59, 0x56, 0x55 };
+static const byte pre_sync[5] = { 0xFF, 0x00, 0x33, 0x55, 0x53 };
+static const uint8_t dev_map[4] = {
 	enDev0 | enDev1 | enDev2,
 	                  enDev2,
 	enDev0 |          enDev2,
 	enDev0 | enDev1,
 };
 
-byte out_preamble;
-
-byte unmap_dev(byte header) {
+static inline byte unmap_dev(byte header) {
 	return dev_map[(header >> DEV_SHIFT) & DEV_MASK];
 }
 
-byte map_dev(byte devices) {
+static inline byte map_dev(byte devices) {
 	for (byte n = 0; n < sizeof(dev_map); n++) {
 		if (dev_map[n] == devices) {
 			return n << DEV_SHIFT;
@@ -117,7 +112,7 @@ byte map_dev(byte devices) {
 	return 0xFF;
 }
 
-#define MAX_PACKETS 7
+#define MAX_PACKETS 8
 
 struct recv_packet {
 	int8_t index;
@@ -131,36 +126,23 @@ struct recv_packet {
 	uint8_t data[128];
 	struct recv_packet *next;
 };
-struct recv_packet recv_buffer[MAX_PACKETS];
-struct recv_packet *head;
-struct recv_packet *tail;
-struct recv_packet *write;
-volatile int8_t readIndex = -1;
-volatile boolean available = false;
-volatile boolean read_rssi = false;
-volatile byte rssi;
-uint8_t send_buffer[128];
 
-byte pm = pmIdle;
-volatile byte sm = pmIdle;
+static struct recv_packet recv_buffer[MAX_PACKETS];
+static struct recv_packet *head;
+static struct recv_packet *tail;
+static struct recv_packet *write;
+static volatile int8_t readIndex = -1;
+static volatile boolean available = false;
 
-byte bit_counter = 0;
-byte byte_buffer = 0;
+static volatile boolean read_rssi = false;
+static volatile byte rssi;
 
-volatile boolean in_sync = false;
-#if !defined(SYNC_ON_32BITS)
-uint16_t sync_buffer = 0;
-#else
-uint32_t sync_buffer = 0;
-#endif
-boolean highnib = true;
-boolean last_bit;
+static uint8_t send_buffer[128];
+static uint8_t send_length;
 
-byte sp = 0;
-byte op = 0;
-byte pp = 0;
-
-uint8_t timer_interrupts = 0;
+static volatile byte send_mode = pmIdle;
+static volatile boolean in_sync = false;
+static uint8_t timer_interrupts = 0;
 
 struct packet {
 	enum enType type;
@@ -179,9 +161,9 @@ struct packet {
 };
 
 
-static inline boolean decode_header(struct packet *packet, const uint8_t *data, uint8_t &n) {
+static inline boolean decode_header(struct packet &packet, const uint8_t *data, uint8_t &n) {
 	uint8_t header = data[n];
-	packet->check += data[n++];
+	packet.check += data[n++];
 
 	if (header & 0xC0) {
 		Serial.print(F("*Unknown header=0x"));
@@ -189,54 +171,54 @@ static inline boolean decode_header(struct packet *packet, const uint8_t *data, 
 		return false;
 	}
 
-	packet->type = (enum enType)((header >> TYPE_SHIFT) & TYPE_MASK);
-	packet->has_devices = unmap_dev(header);
-	packet->has_params = (header >> PARAM_SHIFT) & PARAM_MASK;
+	packet.type = (enum enType)((header >> TYPE_SHIFT) & TYPE_MASK);
+	packet.has_devices = unmap_dev(header);
+	packet.has_params = (header >> PARAM_SHIFT) & PARAM_MASK;
 
 	return true;
 }
 
-static inline boolean encode_header(struct packet *packet, uint8_t *data, uint8_t &n) {
-	packet->check = 0;
+static inline boolean encode_header(struct packet &packet, uint8_t *data, uint8_t &n) {
+	packet.check = 0;
 
-	data[n] = map_dev(packet->has_devices);
+	data[n] = map_dev(packet.has_devices);
 	if (data[n] == 0xFF) {
 		return false;
 	}
 
-	data[n] |= packet->type << TYPE_SHIFT;
-	data[n] |= packet->has_params << PARAM_SHIFT;
-	packet->check += data[n++];
+	data[n] |= packet.type << TYPE_SHIFT;
+	data[n] |= packet.has_params << PARAM_SHIFT;
+	packet.check += data[n++];
 
 	return true;
 }
 
-static inline boolean decode_device(struct packet *packet, uint8_t device, const uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean decode_device(struct packet &packet, uint8_t device, const uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n + 2 >= length) {
 		return false;
 	}
 
-	packet->devices[device] = (uint32_t)data[n] << 16;
-	packet->check += data[n++];
+	packet.devices[device] = (uint32_t)data[n] << 16;
+	packet.check += data[n++];
 
-	packet->devices[device] |= (uint32_t)data[n] << 8;
-	packet->check += data[n++];
+	packet.devices[device] |= (uint32_t)data[n] << 8;
+	packet.check += data[n++];
 
-	packet->devices[device] |= data[n];
-	packet->check += data[n++];
+	packet.devices[device] |= data[n];
+	packet.check += data[n++];
 
 	return true;
 }
 
-static inline boolean decode_devices(struct packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean decode_devices(struct packet &packet, const uint8_t *data, uint8_t &n, uint8_t length) {
 	uint8_t device_bit = enDev0;
 
 	for (uint8_t i = 0; i < 3; i++) {
-		if (packet->has_devices & device_bit) {
+		if (packet.has_devices & device_bit) {
 			if (!decode_device(packet, i, data, n, length)) {
 				return false;
 			}
-			packet->devices_read |= device_bit;
+			packet.devices_read |= device_bit;
 		}
 		device_bit <<= 1;
 	}
@@ -244,28 +226,28 @@ static inline boolean decode_devices(struct packet *packet, const uint8_t *data,
 	return true;
 }
 
-static inline boolean encode_device(struct packet *packet, uint8_t device, uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean encode_device(struct packet &packet, uint8_t device, uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n + 2 >= length) {
 		return false;
 	}
 
-	data[n] = packet->devices[device] >> 16;
-	packet->check += data[n++];
+	data[n] = packet.devices[device] >> 16;
+	packet.check += data[n++];
 
-	data[n] = packet->devices[device] >> 8;
-	packet->check += data[n++];
+	data[n] = packet.devices[device] >> 8;
+	packet.check += data[n++];
 
-	data[n] = packet->devices[device];
-	packet->check += data[n++];
+	data[n] = packet.devices[device];
+	packet.check += data[n++];
 
 	return true;
 }
 
-static inline boolean encode_devices(struct packet *packet, uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean encode_devices(struct packet &packet, uint8_t *data, uint8_t &n, uint8_t length) {
 	uint8_t device_bit = enDev0;
 
 	for (uint8_t i = 0; i < 3; i++) {
-		if (packet->has_devices & device_bit) {
+		if (packet.has_devices & device_bit) {
 			if (!encode_device(packet, i, data, n, length)) {
 				return false;
 			}
@@ -276,19 +258,19 @@ static inline boolean encode_devices(struct packet *packet, uint8_t *data, uint8
 	return true;
 }
 
-static inline boolean decode_params(struct packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean decode_params(struct packet &packet, const uint8_t *data, uint8_t &n, uint8_t length) {
 	uint8_t param_bit = enParam0;
 
 	for (uint8_t i = 0; i < 2; i++) {
-		if (packet->has_params & param_bit) {
+		if (packet.has_params & param_bit) {
 			if (n >= length) {
 				return false;
 			}
 
-			packet->params[i] = data[n];
-			packet->check += data[n++];
+			packet.params[i] = data[n];
+			packet.check += data[n++];
 
-			packet->params_read |= param_bit;
+			packet.params_read |= param_bit;
 		}
 		param_bit >>= 1;
 	}
@@ -296,17 +278,17 @@ static inline boolean decode_params(struct packet *packet, const uint8_t *data, 
 	return true;
 }
 
-static inline boolean encode_params(struct packet *packet, uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean encode_params(struct packet &packet, uint8_t *data, uint8_t &n, uint8_t length) {
 	uint8_t param_bit = enParam0;
 
 	for (uint8_t i = 0; i < 2; i++) {
-		if (packet->has_params & param_bit) {
+		if (packet.has_params & param_bit) {
 			if (n >= length) {
 				return false;
 			}
 
-			data[n] = packet->params[i];
-			packet->check += data[n++];
+			data[n] = packet.params[i];
+			packet.check += data[n++];
 		}
 		param_bit >>= 1;
 	}
@@ -314,168 +296,168 @@ static inline boolean encode_params(struct packet *packet, uint8_t *data, uint8_
 	return true;
 }
 
-static inline boolean decode_command(struct packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean decode_command(struct packet &packet, const uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n + 1 >= length) {
 		return false;
 	}
 
-	packet->command = (uint16_t)data[n] << 8;
-	packet->check += data[n++];
+	packet.command = (uint16_t)data[n] << 8;
+	packet.check += data[n++];
 
-	packet->command |= data[n];
-	packet->check += data[n++];
+	packet.command |= data[n];
+	packet.check += data[n++];
 
-	packet->command_read = true;
+	packet.command_read = true;
 
 	return true;
 }
 
-static inline boolean encode_command(struct packet *packet, uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean encode_command(struct packet &packet, uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n + 1 >= length) {
 		return false;
 	}
 
-	data[n] = packet->command >> 8;
-	packet->check += data[n++];
+	data[n] = packet.command >> 8;
+	packet.check += data[n++];
 
-	data[n] = packet->command;
-	packet->check += data[n++];
+	data[n] = packet.command;
+	packet.check += data[n++];
 
 	return true;
 }
 
-static inline void print_header(struct packet *packet) {
+static inline void print_header(struct packet &packet) {
 	char tmp[11];
 
-	if (packet->type == enI) {
-		Serial.print(" I ");
-	} else if (packet->type == enRQ) {
-		Serial.print("RQ ");
-	} else if (packet->type == enRP) {
-		Serial.print("RP ");
-	} else if (packet->type == enW) {
-		Serial.print(" W ");
+	if (packet.type == enI) {
+		Serial.print(F(" I "));
+	} else if (packet.type == enRQ) {
+		Serial.print(F("RQ "));
+	} else if (packet.type == enRP) {
+		Serial.print(F("RP "));
+	} else if (packet.type == enW) {
+		Serial.print(F(" W "));
 	}
 
-	if (packet->has_params & enParam0) {
-		if (packet->params_read & enParam0) {
-			sprintf(tmp, "%03u ", packet->params[0]);
+	if (packet.has_params & enParam0) {
+		if (packet.params_read & enParam0) {
+			sprintf_P(tmp, PSTR("%03u "), packet.params[0]);
 			Serial.print(tmp);
 		} else {
-			Serial.print("??? ");
+			Serial.print(F("??? "));
 		}
 	} else {
-		Serial.print("--- ");
+		Serial.print(F("--- "));
 	}
 
 	uint8_t device_bit = enDev0;
 
 	for (uint8_t i = 0; i < 3; i++) {
-		if (packet->has_devices & device_bit) {
-			if (packet->devices_read & device_bit) {
-				sprintf(tmp, "%02u:%06lu ", (unsigned int)(packet->devices[i] >> 18) & 0x3F, (unsigned long)(packet->devices[i] & 0x3FFFF));
+		if (packet.has_devices & device_bit) {
+			if (packet.devices_read & device_bit) {
+				sprintf_P(tmp, PSTR("%02u:%06lu "), (unsigned int)(packet.devices[i] >> 18) & 0x3F, (unsigned long)(packet.devices[i] & 0x3FFFF));
 				Serial.print(tmp);
 			} else {
-				Serial.print("??:?????? ");
+				Serial.print(F("??:?????? "));
 			}
 		} else {
-			Serial.print("--:------ ");
+			Serial.print(F("--:------ "));
 		}
 		device_bit <<= 1;
 	}
 
-	if (packet->command_read) {
-		sprintf(tmp, "%04X ",packet->command);
+	if (packet.command_read) {
+		sprintf_P(tmp, PSTR("%04X "),packet.command);
 		Serial.print(tmp);
 	} else {
-		Serial.print("???? ");
+		Serial.print(F("???? "));
 	}
 }
 
-static inline boolean decode_print_content(struct packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean decode_print_content(struct packet &packet, const uint8_t *data, uint8_t &n, uint8_t length) {
 	char tmp[4];
 
 	if (n >= length) {
 		return false;
 	}
 
-	packet->length = data[n];
-	packet->check += data[n++];
+	packet.length = data[n];
+	packet.check += data[n++];
 
-	sprintf(tmp, "%03u ", packet->length);
+	sprintf_P(tmp, PSTR("%03u "), packet.length);
 	Serial.print(tmp);
 
-	packet->length_read = 0;
-	while (packet->length_read != packet->length) {
+	packet.length_read = 0;
+	while (packet.length_read != packet.length) {
 		if (n >= length) {
 			return false;
 		}
 
 		uint8_t value = data[n];
-		packet->check += data[n++];
+		packet.check += data[n++];
 
-		sprintf(tmp, "%02X", value);
+		sprintf_P(tmp, PSTR("%02X"), value);
 		Serial.print(tmp);
 
-		packet->length_read++;
+		packet.length_read++;
 	}
 
 	return true;
 }
 
-static inline boolean decode_print_checksum(struct packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean decode_print_checksum(struct packet &packet, const uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n >= length) {
 		return false;
 	}
 
 	uint8_t check = data[n];
-	packet->check += data[n++];
+	packet.check += data[n++];
 
-	if (packet->check != 0) {
+	if (packet.check != 0) {
 		char tmp[7];
 
 		Serial.print(F("*CHK*"));
-		sprintf(tmp, "+%02X=%02X", check, packet->check);
+		sprintf_P(tmp, PSTR("+%02X=%02X"), check, packet.check);
 		Serial.print(tmp);
 	}
 
 	return true;
 }
 
-static inline boolean encode_length(struct packet *packet, uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean encode_length(struct packet &packet, uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n >= length) {
 		return false;
 	}
 
-	data[n] = packet->length;
-	packet->check += data[n++];
+	data[n] = packet.length;
+	packet.check += data[n++];
 
 	return true;
 }
 
-static inline boolean encode_content(struct packet *packet, uint8_t value, uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean encode_content(struct packet &packet, uint8_t value, uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n >= length) {
 		return false;
 	}
 
-	if (packet->length_read >= packet->length) {
+	if (packet.length_read >= packet.length) {
 		return false;
 	}
 
 	data[n] = value;
-	packet->check += data[n++];
+	packet.check += data[n++];
 
-	packet->length_read++;
+	packet.length_read++;
 
 	return true;
 }
 
-static inline boolean encode_checksum(struct packet *packet, uint8_t *data, uint8_t &n, uint8_t length) {
+static inline boolean encode_checksum(struct packet &packet, uint8_t *data, uint8_t &n, uint8_t length) {
 	if (n >= length) {
 		return false;
 	}
 
-	data[n++] = -packet->check;
+	data[n++] = -packet.check;
 
 	return true;
 }
@@ -504,7 +486,7 @@ SIGNAL(TIMER0_COMPA_vect) {
 	}
 }
 
-void finish_recv_buffer(enum marker status) {
+static void finish_recv_buffer(enum marker status) {
 	in_sync = false;
 
 	if (write->length > 0) {
@@ -533,8 +515,12 @@ void finish_recv_buffer(enum marker status) {
 }
 
 // Interrupt to receive data and find_sync_word
-void sync_clk_in() {
+static void sync_clk_in() {
+	static boolean last_bit;
+	static uint8_t bit_counter = 0;
+	static uint8_t byte_buffer = 0;
 	static byte byte_bit;
+	static uint32_t sync_buffer = 0;
 	byte new_bit = (PIND & GDO0_PD); // sync data
 
 	// keep our buffer rolling even when we're in sync
@@ -605,8 +591,15 @@ void sync_clk_in() {
 }
 
 // Interrupt to send data
-void sync_clk_out() {
-	if (sm != pmSendActive) {
+static void sync_clk_out() {
+	static uint8_t bit_counter = 0;
+	static uint8_t byte_buffer = 0;
+	static boolean highnib = true;
+	static uint8_t out_preamble = 0;
+	static uint8_t pre_pos = 0;
+	static uint8_t send_pos = 0;
+
+	if (send_mode != pmSendActive) {
 		return;
 	}
 	if (bit_counter < 9) {
@@ -615,11 +608,11 @@ void sync_clk_out() {
 			if (out_preamble < 5) {
 				byte_buffer = 0x55;
 				out_preamble++;
-			} else if (pp < 5) {
-				byte_buffer = pre_sync[pp++];
+			} else if (pre_pos < 5) {
+				byte_buffer = pre_sync[pre_pos++];
 			} else {
-				if (sp<op) {
-					byte_buffer = send_buffer[sp];
+				if (send_pos < send_length) {
+					byte_buffer = send_buffer[send_pos];
 					if (highnib) {
 						byte_buffer = manc_enc[(byte_buffer >> 4) & 0xF];
 					} else {
@@ -627,18 +620,24 @@ void sync_clk_out() {
 							write->data[write->length++] = byte_buffer;
 						}
 						byte_buffer = manc_enc[byte_buffer & 0xF];
-						sp++;
+						send_pos++;
 					}
 					highnib = !highnib;
-				} else if (sp <= op + 4) {
-					if (sp == op) {
+				} else if (send_pos <= send_length + 4) {
+					if (send_pos == send_length) {
 						byte_buffer = 0x35;
 					} else {
 						byte_buffer = 0x55;
 					}
-					sp++;
+					send_pos++;
 				} else {
-					sm = pmSendFinished;
+					bit_counter = 0;
+					byte_buffer = 0;
+					highnib = true;
+					out_preamble = 0;
+					pre_pos = 0;
+					send_pos = 0;
+					send_mode = pmSendFinished;
 					return;
 				}
 			}
@@ -700,18 +699,17 @@ void setup() {
 
 // Main loop
 void loop() {
-	if (sm == pmSendFinished) {
+	static uint8_t send_param = 0;
+	static uint8_t param_pos = 0;
+
+	if (send_mode == pmSendFinished) {
 		detachInterrupt(GDO2_INT);
-		in_sync = false;
-		bit_counter = 0;
 		finish_recv_buffer(maComplete);
-		pinMode(2,INPUT);
-		while(((CCx.Write(CCx_SRX, 0) >> 4) & 7) != 1);
+		pinMode(2, INPUT);
+		while (((CCx.Write(CCx_SRX, 0) >> 4) & 7) != 1);
 		attachInterrupt(GDO2_INT, sync_clk_in, FALLING);
-		pp = 0;
-		op = 0;
-		sp = 0;
-		sm = pmIdle;
+		send_length = 0;
+		send_mode = pmIdle;
 	}
 	if (read_rssi) {
 		byte rssi_tmp;
@@ -738,11 +736,11 @@ void loop() {
 		}
 
 #ifdef DEBUG
-		Serial.print("# timestamp=");
+		Serial.print(F("# timestamp="));
 		Serial.print(r_packet.timestamp, DEC);
-		Serial.print(" index=");
+		Serial.print(F(" index="));
 		Serial.print(r_packet.index, DEC);
-		Serial.print(" age=");
+		Serial.print(F(" age="));
 		Serial.println(micros() - r_packet.timestamp, DEC);
 #endif
 
@@ -752,32 +750,32 @@ void loop() {
 
 		memset(&d_packet, 0, sizeof(d_packet));
 
-		sprintf(tmp, "%03u ", r_packet.rssi);
+		sprintf_P(tmp, PSTR("%03u "), r_packet.rssi);
 		Serial.print(tmp);
 
-		if (!decode_header(&d_packet, r_packet.data, n)) {
+		if (!decode_header(d_packet, r_packet.data, n)) {
 			return;
 		}
 
-		if (!decode_devices(&d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_devices(d_packet, r_packet.data, n, r_packet.length)) {
 			goto incomplete;
 		}
 
-		if (!decode_params(&d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_params(d_packet, r_packet.data, n, r_packet.length)) {
 			goto incomplete;
 		}
 
-		if (!decode_command(&d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_command(d_packet, r_packet.data, n, r_packet.length)) {
 			goto incomplete;
 		}
 
-		print_header(&d_packet);
+		print_header(d_packet);
 
-		if (!decode_print_content(&d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_print_content(d_packet, r_packet.data, n, r_packet.length)) {
 			goto incomplete_content;
 		}
 
-		if (!decode_print_checksum(&d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_print_checksum(d_packet, r_packet.data, n, r_packet.length)) {
 			goto incomplete_content;
 		}
 
@@ -785,7 +783,7 @@ void loop() {
 		return;
 
 incomplete:
-		print_header(&d_packet);
+		print_header(d_packet);
 
 incomplete_content:
 		if (r_packet.status == maComplete) {
@@ -797,46 +795,51 @@ incomplete_content:
 		} else if (r_packet.status == maOverflow) {
 			Serial.println(F("*INCOMPLETE*OVERFLOW*"));
 		}
-	} else if (sm < pmSendReady) {
+	} else if (send_mode < pmSendReady) {
 		static struct packet o_packet;
 		static char param[10];
 
 		if (Serial.available()) {
 			char out = Serial.read();
 			if (out == '\r') {
-			} else if (out == '\n' && sm == pmSendHavePacket) { // send on lf
-				sm = pmSendReady;
+			} else if (out == '\n') { // send on lf
+				param_pos = 0;
+				send_param = 0;
+
+				if (send_mode == pmSendHavePacket) {
+					send_mode = pmSendReady;
+				} else {
+					send_length = 0;
+					send_mode = pmIdle;
+				}
 			} else if (out == '\x11' || out == '*' || out == '\n') { // escape or bad packet
-				pp = 0;
-				op = 0;
-				sp = 0;
-				sm = pmIdle;
-			} else if (sm == pmSendBadPacket) { // don't do any more processing if the packet is bad
-			} else if (sp < 7) {
+				send_mode = pmSendBadPacket;
+			} else if (send_mode == pmSendBadPacket) { // don't do any more processing if the packet is bad
+			} else if (send_param < 7) {
 				if (out == ' ') {
-					if (pp) {
-						if (sp == 0) {
+					if (param_pos) {
+						if (send_param == 0) {
 							memset(&o_packet, 0, sizeof(o_packet));
 
-							if (!strcmp(param, "I")) {
+							if (!strcmp_P(param, PSTR("I"))) {
 								o_packet.type = enI;
-							} else if (!strcmp(param, "RQ")) {
+							} else if (!strcmp_P(param, PSTR("RQ"))) {
 								o_packet.type = enRQ;
-							} else if (!strcmp(param, "RP")) {
+							} else if (!strcmp_P(param, PSTR("RP"))) {
 								o_packet.type = enRP;
-							} else if (!strcmp(param, "W")) {
+							} else if (!strcmp_P(param, PSTR("W"))) {
 								o_packet.type = enW;
 							} else {
-								sm = pmSendBadPacket;
+								send_mode = pmSendBadPacket;
 								Serial.println(F("# Invalid type"));
 								return;
 							}
-						} else if (sp == 1) {
+						} else if (send_param == 1) {
 							if (param[0] != '-') {
 								unsigned int value;
 
-								if (sscanf(param, "%03u", &value) != 1) {
-									sm = pmSendBadPacket;
+								if (sscanf_P(param, PSTR("%03u"), &value) != 1) {
+									send_mode = pmSendBadPacket;
 									Serial.println(F("# Invalid param0"));
 									return;
 								}
@@ -844,123 +847,120 @@ incomplete_content:
 								o_packet.params[0] = value;
 								o_packet.has_params |= enParam0;
 							}
-						} else if (sp >= 2 && sp <= 4) {
+						} else if (send_param >= 2 && send_param <= 4) {
 							if (param[0] != '-') {
+								const uint8_t device_num = send_param - 2;
 								unsigned int device_type;
 								unsigned long device_addr;
 
-								if (sscanf(param, "%02u:%06lu", &device_type, &device_addr) != 2) {
-									sm = pmSendBadPacket;
+								if (sscanf_P(param, PSTR("%02u:%06lu"), &device_type, &device_addr) != 2) {
+									send_mode = pmSendBadPacket;
 									Serial.print(F("# Invalid device"));
-									Serial.println(sp - 2, DEC);
+									Serial.println(device_num, DEC);
 									return;
 								}
 
 								if (device_type > 0x3F || device_addr > 0x3FFFF) {
-									sm = pmSendBadPacket;
+									send_mode = pmSendBadPacket;
 									Serial.print(F("# Invalid device"));
-									Serial.println(sp - 2, DEC);
+									Serial.println(device_num, DEC);
 									return;
 								}
 
-								o_packet.devices[sp - 2] = (uint32_t)device_type << 18;
-								o_packet.devices[sp - 2] |= device_addr;
-								o_packet.has_devices |= enDev0 << (sp - 2);
+								o_packet.devices[device_num] = (uint32_t)device_type << 18;
+								o_packet.devices[device_num] |= device_addr;
+								o_packet.has_devices |= enDev0 << device_num;
 							}
-						} else if (sp == 5) {
+						} else if (send_param == 5) {
 							unsigned int value;
 
-							if (sscanf(param, "%04X", &value) != 1) {
-								sm = pmSendBadPacket;
+							if (sscanf_P(param, PSTR("%04X"), &value) != 1) {
+								send_mode = pmSendBadPacket;
 								Serial.println(F("# Invalid command"));
 								return;
 							}
 
 							o_packet.command = value;
-						} else if (sp == 6) {
+						} else if (send_param == 6) {
 							unsigned int value;
 
-							if (sscanf(param, "%03u", &value) != 1) {
-								sm = pmSendBadPacket;
+							if (sscanf_P(param, PSTR("%03u"), &value) != 1) {
+								send_mode = pmSendBadPacket;
 								Serial.println(F("# Invalid length"));
 								return;
 							}
 
 							if (value > 255) {
-								sm = pmSendBadPacket;
+								send_mode = pmSendBadPacket;
 								Serial.println(F("# Invalid length"));
 								return;
 							}
 
 							o_packet.length = value;
 
-							if (!encode_header(&o_packet, send_buffer, op)
-									|| !encode_devices(&o_packet, send_buffer, op, sizeof(send_buffer))
-									|| !encode_params(&o_packet, send_buffer, op, sizeof(send_buffer))
-									|| !encode_command(&o_packet, send_buffer, op, sizeof(send_buffer))
-									|| !encode_length(&o_packet, send_buffer, op, sizeof(send_buffer))
+							if (!encode_header(o_packet, send_buffer, send_length)
+									|| !encode_devices(o_packet, send_buffer, send_length, sizeof(send_buffer))
+									|| !encode_params(o_packet, send_buffer, send_length, sizeof(send_buffer))
+									|| !encode_command(o_packet, send_buffer, send_length, sizeof(send_buffer))
+									|| !encode_length(o_packet, send_buffer, send_length, sizeof(send_buffer))
 							) {
-								sm = pmSendBadPacket;
+								send_mode = pmSendBadPacket;
 								Serial.println(F("# Invalid header"));
 								return;
 							}
 						}
 
-						pp = 0;
-						sp++;
+						param_pos = 0;
+						send_param++;
 					}
-				} else if (pp < 9) {
-					param[pp++] = out;
-					param[pp] = 0;
+				} else if (param_pos < 9) {
+					param[param_pos++] = out;
+					param[param_pos] = 0;
 				}
-			} else if (sp == 7) {
-				param[pp++] = out;
-				if (pp == 2) {
-					param[pp] = 0;
-					pp = 0;
+			} else if (send_param == 7) {
+				param[param_pos++] = out;
+				if (param_pos == 2) {
+					param[param_pos] = 0;
+					param_pos = 0;
 
 					unsigned int value;
-					if (sscanf(param, "%02X", &value) != 1) {
-						sm = pmSendBadPacket;
+					if (sscanf_P(param, PSTR("%02X"), &value) != 1) {
+						send_mode = pmSendBadPacket;
 						Serial.print(F("# Invalid byte "));
 						Serial.println(o_packet.length_read, DEC);
 						return;
 					}
 
-					if (!encode_content(&o_packet, value, send_buffer, op, sizeof(send_buffer))) {
-						sm = pmSendBadPacket;
+					if (!encode_content(o_packet, value, send_buffer, send_length, sizeof(send_buffer))) {
+						send_mode = pmSendBadPacket;
 						Serial.print(F("# Buffer full at byte "));
 						Serial.println(o_packet.length_read, DEC);
 						return;
 					}
 				}
 			} else {
-				sm = pmSendBadPacket;
+				send_mode = pmSendBadPacket;
+				Serial.println(F("# Additional data after packet"));
 				return;
 			}
 
-			if (sp == 7 && o_packet.length_read == o_packet.length) {
-				if (!encode_checksum(&o_packet, send_buffer, op, sizeof(send_buffer))) {
-					sm = pmSendBadPacket;
+			if (send_param == 7 && o_packet.length_read == o_packet.length) {
+				if (!encode_checksum(o_packet, send_buffer, send_length, sizeof(send_buffer))) {
+					send_mode = pmSendBadPacket;
 					Serial.println(F("# Buffer full at checksum"));
 					return;
 				}
 
-				sm = pmSendHavePacket;
-				sp++;
+				send_mode = pmSendHavePacket;
+				send_param++;
 			}
 		}
-	} else if (sm == pmSendReady && !in_sync) {
+	} else if (send_mode == pmSendReady && !in_sync) {
 		detachInterrupt(GDO2_INT);
 		while (((CCx.Write(CCx_SIDLE, 0) >> 4) & 7) != 0);
 		while (((CCx.Write(CCx_STX, 0) >> 4) & 7) != 2); // will calibrate when going to tx
 		pinMode(2, OUTPUT);
-		sm = pmSendActive;
-		highnib = true;
-		bit_counter = 0;
-		sp = 0;
-		pp = 0;
-		out_preamble = 0;
+		send_mode = pmSendActive;
 		finish_recv_buffer(maComplete);
 		attachInterrupt(GDO2_INT, sync_clk_out, RISING);
 	}
