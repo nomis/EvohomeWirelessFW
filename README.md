@@ -1,6 +1,7 @@
 // EvohomeWirelessFW - RFBee firmware for evohome wireless communications  
 // Copyright (c) 2015 Hydrogenetic  
 // Modified 2017 by Fred Hoogduin  
+// Copyright 2019  Simon Arlott
 //  
 // based on HoneyCommLite - Alternative RFBee firmware to communicate with  
 //                 Evohome / Hometronix / CM67z and other Honeywell 868MHz based RF devices.  
@@ -25,30 +26,39 @@
 //  
 // Compile for RFbee using board: Arduino Pro or Pro Mini (3.3V, 8MHz) w/ATmega 168  
 
-This should work with Domoticz (http://www.domoticz.com/wiki/Evohome) to control evohome or you can control it directly via the serial interface if you use the correct protocol. This sketch can also serve as template for creation of an evohome compatible wireless device. 
+This should work with Domoticz (http://www.domoticz.com/wiki/Evohome) to control evohome
+or you can control it directly via the serial interface if you use the correct protocol.
+This sketch can also serve as template for creation of an evohome compatible wireless
+device.
 
-You will require an RFBee, probably a UartSBee (for USB serial connection to the RFBee) and you will also need the Arduino IDE from http://arduino.cc/en/main/software or via sudo apt-get install arduino. The RFBee is a 3.3v device so you should set the voltage switch on the UartSBee to 3.3v instead of 5v. 
+You will require an RFBee, probably a UartSBee (for USB serial connection to the RFBee)
+and you will also need the Arduino IDE from http://arduino.cc/en/main/software or via
+``sudo apt-get install arduino``. The RFBee is a 3.3v device so you should set the
+voltage switch on the UartSBee to 3.3v instead of 5v. 
 
 # RFBee versions
 **NOTICE**
-The RFBee exists with two different processors (or MCU's). 
+The RFBee exists with two different processors (or MCUs). 
 RFBee *v1.0* and *v1.1* contain the AVR **ATmega168**.
 RFbee *v1.2* contains the AVR **ATmega328**.  
 See <http://wiki.seeed.cc/RFbee_V1.1-Wireless_Arduino_compatible_node/>.
 # Arduino IDE
 Download and install the Arduino IDE from <https://www.arduino.cc/en/main/software>.  
 
-Once you have the IDE installed you should copy the sketch (EvohomeWirelessFW folder) to your Sketchbook folder.
-You then select the correct board as above, choose the appropriate serial device and select upload from the menu. 
+Once you have the IDE installed you should copy the sketch (EvohomeWirelessFW folder) to
+your Sketchbook folder. You then select the correct board as above, choose the appropriate
+serial device and select upload from the menu.
 # PlatformIO
 Download and install PlatformIO Core from <http://docs.platformio.org/en/latest/installation.html>.  
 Once installed you can build and or upload the project from the command line.
 ## Build your project
 Go to the root folder of the cloned project (the folder containing platformio.ini).
 
-**The code is configured for RFBee v1.2. If you are using a RFBee v1.0 or v1.1, edit platformio.ini and replace _pro8MHzatmega328_ with _pro8MHzatmega168_.**
+**The code is configured for RFBee v1.2. If you are using a RFBee v1.0 or v1.1, edit
+platformio.ini and replace _pro8MHzatmega328_ with _pro8MHzatmega168_.**
 
-Issue the following command: ``platformio run`` and you should see the build running like:
+Issue the following command: ``platformio run`` and you should see the build running
+like:
 
 ```
 $ platformio run
@@ -123,12 +133,14 @@ Data:        803 bytes (39.2% Full)
 ```
 ## Upload to the RFBee
 
-To upload the code to your RFBee, the combination RFBee/UartSBee should be connected to your PC.
-The correct drivers must be installed. On Windows, when you open your device manager should show a USB COM port.  
+To upload the code to your RFBee, the combination RFBee/UartSBee should be connected to
+your PC. The correct drivers must be installed. On Windows, when you open your device
+manager should show a USB COM port.
 
 ![Alt](./img/devicemanager.jpg)
 
-Issue the following command: ``platformio run --target upload`` and you should see the build running like:
+Issue the following command: ``platformio run --target upload`` and you should see the
+build running like:
 
 ```
 $ platformio run --target upload
@@ -222,10 +234,7 @@ avrdude done.  Thank you.
 ```
 
 
-The default 8MHz clock speed will not allow the RFBee to operate smoothly at 115200 baud. There is a correction for this in the code but it is based on accurate factory calibration of the 8MHz clock speed and could therefore give variable results. Please note this means that the device is no longer running at the correct speed and you may need to adjust any code you add to this sketch accordingly as a result. If you don't require 115200 baud operation you can comment out the OSCCAL line at the beginning of setup().
-
-Originally there was the additional note about the FTDI USB Serial interface in the UartSBee:
-it appears the driver for this generates a very high level of interrupts which can cause
-problems on certain architectures such as VirtualBox or RPi. 
-However, version 0.9(alpha) has been running with a RFBee/UartSBee attached to a Raspberry Pi 2 Model B without any problems.
-
+The default 8MHz clock speed will not allow the RFBee to operate smoothly at 115200 baud.
+The serial console therefore runs at 250000 baud. It is necessary to write data in small
+chunks (e.g. 16 bytes) with a delay (e.g. 2ms) between them to allow enough time for all
+of the incoming serial data to be read from the FIFO and processed.
