@@ -367,7 +367,7 @@ static inline void print_header(struct packet &packet) {
 	}
 
 	if (packet.command_read) {
-		sprintf_P(tmp, PSTR("%04X "),packet.command);
+		sprintf_P(tmp, PSTR("%04X "), packet.command);
 		Serial.print(tmp);
 	} else {
 		Serial.print(F("???? "));
