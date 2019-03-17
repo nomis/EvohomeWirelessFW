@@ -29,7 +29,7 @@
 #include "CCx.h"
 #include "CCxCfg.h"
 
-#define VERSION_NO "1.0"
+#define VERSION_NO "1.1"
 
 #define SYNC_ON_32BITS
 
