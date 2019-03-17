@@ -29,7 +29,7 @@
 #include "CCx.h"
 #include "CCxCfg.h"
 
-#define VERSION_NO "1.2"
+#define VERSION_NO "1.3"
 
 #define GDO0_INT 0 // INT0(PD2) wired to GDO0 on CC1101
 #define GDO2_INT 1 // INT1(PD3) wired to GDO2 on CC1101
@@ -674,7 +674,6 @@ void setup() {
 	CCx.Setup(0);
 	while (((CCx.Write(CCx_SIDLE, 0) >> 4) & 7) != 0);
 	while (((CCx.Write(CCx_SRX, 0) >> 4) & 7) != 1); // will calibrate when going to rx
-	CCx.Write(CCx_FSCTRL0, -20);
 
 	// Data is received at 38k4 (packet bytes only at 19k2 due to manchester encoding)
 	// 115k2 provides enough speed to perform processing and write the received

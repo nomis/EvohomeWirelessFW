@@ -77,9 +77,9 @@ static const byte CCx_registerSettings[CCX_NR_OF_CONFIGS][CCX_NR_OF_REGISTERS] P
 		0x00, // CCx_PKTCTRL1
 		0x12, // CCx_PKTCTRL0 (Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins)
 		0x06, // CCx_FSCTRL1
-		0x21, // CCx_FREQ2 (channel frequency=868.3MHz)
+		0x21, // CCx_FREQ2 (channel frequency=868.267MHz)
 		0x65, // CCx_FREQ1
-		0x6c, // CCx_FREQ0
+		0x18, // CCx_FREQ0
 		0xaa, // CCx_MDMCFG4 (CHANBW_E=2 CHANBW_M=2 channel bandwidth=135kHz DRATE_E=10)
 		0x83, // CCx_MDMCFG3 (DRATE_M=131 data rate=38,383.4838867Hz)
 		0x10, // CCx_MDMCFG2 (GFSK No Sync Word / Preamable)
