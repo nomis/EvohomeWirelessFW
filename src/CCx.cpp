@@ -180,11 +180,6 @@ void CCX::setPA(byte configId, byte paIndex) {
    CCx.Write(CCx_PATABLE, PAval);
 }
 
-
-void CCX::Mode(byte md) {
-
-}
-
 byte CCX::NrOfConfigs() {
    return CCX_NR_OF_CONFIGS;
 }

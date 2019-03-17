@@ -120,7 +120,7 @@ byte map_dev(byte devices) {
 	return 0xFF;
 }
 
-#define MAX_PACKETS 6
+#define MAX_PACKETS 7
 
 struct recv_packet {
 	int8_t index;
@@ -130,8 +130,8 @@ struct recv_packet {
 	boolean ready;
 	uint8_t length;
 	enum marker status;
-	byte rssi;
-	byte data[128];
+	uint8_t rssi;
+	uint8_t data[128];
 	struct recv_packet *next;
 };
 struct recv_packet recv_buffer[MAX_PACKETS];
@@ -163,21 +163,193 @@ byte sp = 0;
 byte op = 0;
 byte pp = 0;
 
-byte check = 0;
-byte pkt_pos = 0;
-byte devidCount = 0;
-uint32_t devid;
-uint32_t src_devid;
-byte *pDev = (byte*)&devid;
-uint16_t cmd;
-char tmp[20];
-byte len;
-byte pos = 3;
 char param[10];
 
-char averageFrequencyOffset = 0; // use char for signed 8 bit type
-
 uint8_t timer_interrupts = 0;
+
+struct decode_packet {
+	enum enType type;
+	uint8_t has_devices;
+	uint8_t devices_read;
+	uint8_t has_params;
+	uint8_t params_read;
+
+	uint32_t devices[3];
+	uint8_t params[2];
+	uint16_t command;
+	uint8_t check;
+} __attribute__((packed));
+
+
+static inline boolean decode_header(struct decode_packet *packet, const uint8_t *data, uint8_t &n) {
+	uint8_t header = data[n];
+	packet->check += data[n++];
+
+	if (header & 0xC0) {
+		Serial.print(F("*Unknown header=0x"));
+		Serial.println(header, HEX);
+		return false;
+	}
+
+	packet->type = (enum enType)((header >> TYPE_SHIFT) & TYPE_MASK);
+	packet->has_devices = unmap_dev(header);
+	packet->has_params = (header >> PARAM_SHIFT) & PARAM_MASK;
+	return true;
+}
+
+static inline boolean decode_device(struct decode_packet *packet, uint8_t device, const uint8_t *data, uint8_t &n, uint8_t length) {
+	if (n + 2 >= length) {
+		return false;
+	}
+
+	packet->devices[device] = (uint32_t)data[n] << 16;
+	packet->check += data[n++];
+
+	packet->devices[device] |= (uint32_t)data[n] << 8;
+	packet->check += data[n++];
+
+	packet->devices[device] |= data[n];
+	packet->check += data[n++];
+	return true;
+}
+
+static inline boolean decode_devices(struct decode_packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+	uint8_t device_bit = enDev0;
+
+	for (uint8_t i = 0; i < 3; i++) {
+		if (packet->has_devices & device_bit) {
+			if (!decode_device(packet, i, data, n, length)) {
+				return false;
+			}
+			packet->devices_read |= device_bit;
+		}
+		device_bit <<= 1;
+	}
+
+	return true;
+}
+
+static inline boolean decode_params(struct decode_packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+	for (uint8_t i = 0; i < 2; i++) {
+		if (packet->has_params & (2 >> i)) {
+			if (n + 1 < length) {
+				return false;
+			}
+
+			packet->params[i] = data[n];
+			packet->check += data[n++];
+
+			packet->params_read |= (2 >> i);
+		}
+	}
+
+	return true;
+}
+
+static inline boolean decode_command(struct decode_packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+	if (n + 1 >= length) {
+		return false;
+	}
+
+	packet->command = (uint16_t)data[n] << 8;
+	packet->check += data[n++];
+
+	packet->command |= data[n];
+	packet->check += data[n++];
+
+	return true;
+}
+
+static inline void print_header(struct decode_packet *packet) {
+	char tmp[11];
+
+	if (packet->type == enI) {
+		Serial.print(" I ");
+	} else if (packet->type == enRQ) {
+		Serial.print("RQ ");
+	} else if (packet->type == enRP) {
+		Serial.print("RP ");
+	} else if (packet->type == enW) {
+		Serial.print(" W ");
+	}
+
+	if (packet->has_params & 2) {
+		if (packet->params_read & 2) {
+			sprintf(tmp, "%03u ", packet->params[0]);
+			Serial.print(tmp);
+		} else {
+			Serial.print("??? ");
+		}
+	} else {
+		Serial.print("--- ");
+	}
+
+	uint8_t device_bit = enDev0;
+
+	for (uint8_t i = 0; i < 3; i++) {
+		if (packet->has_devices & device_bit) {
+			if (packet->devices_read & device_bit) {
+				sprintf(tmp, "%02u:%06lu ", (unsigned int)(packet->devices[i] >> 18) & 0x3F, (unsigned long)(packet->devices[i] & 0x3FFFF));
+				Serial.print(tmp);
+			} else {
+				Serial.print("??:?????? ");
+			}
+		} else {
+			Serial.print("--:------ ");
+		}
+		device_bit <<= 1;
+	}
+
+	sprintf(tmp, "%04X ",packet->command);
+	Serial.print(tmp);
+}
+
+static inline boolean decode_print_content(struct decode_packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+	char tmp[4];
+
+	if (n >= length) {
+		return false;
+	}
+
+	uint8_t len = data[n];
+	packet->check += data[n++];
+
+	sprintf(tmp, "%03u ", len);
+	Serial.print(tmp);
+
+	while (len-- > 0) {
+		if (n >= length) {
+			return false;
+		}
+
+		uint8_t value = data[n];
+		packet->check += data[n++];
+
+		sprintf(tmp, "%02X", value);
+		Serial.print(tmp);
+	}
+
+	return true;
+}
+
+static inline boolean decode_print_checksum(struct decode_packet *packet, const uint8_t *data, uint8_t &n, uint8_t length) {
+	if (n >= length) {
+		return false;
+	}
+
+	uint8_t check = data[n];
+	packet->check += data[n++];
+
+	if (packet->check != 0) {
+		char tmp[7];
+
+		Serial.print(F("*CHK*"));
+		sprintf(tmp, "+%02X=%02X", check, packet->check);
+		Serial.print(tmp);
+	}
+
+	return true;
+}
 
 SIGNAL(TIMER0_COMPA_vect) {
 	// Only run after being idle for 5ms
@@ -213,7 +385,6 @@ void finish_recv_buffer(enum marker status) {
 		write->status = status;
 		write->ready = true;
 		write->rssi = rssi;
-		rssi = 0;
 
 		write = write->next;
 		if (write == NULL) {
@@ -228,6 +399,8 @@ void finish_recv_buffer(enum marker status) {
 			write->length = 0;
 		}
 	}
+
+	rssi = 0;
 }
 
 // Interrupt to receive data and find_sync_word
@@ -419,10 +592,10 @@ void loop() {
 		read_rssi = false;
 	}
 	if (available) {
-		struct recv_packet packet;
+		struct recv_packet r_packet;
 
 		if (recv_buffer[readIndex].ready) {
-			memcpy(&packet, &recv_buffer[readIndex], offsetof(struct recv_packet, data) + recv_buffer[readIndex].length);
+			memcpy(&r_packet, &recv_buffer[readIndex], offsetof(struct recv_packet, data) + recv_buffer[readIndex].length);
 			recv_buffer[readIndex].ready = false;
 			recv_buffer[readIndex].length = 0;
 			recv_buffer[readIndex].next = NULL;
@@ -431,131 +604,68 @@ void loop() {
 			return;
 		}
 
-		if (!packet.ready) {
+		if (!r_packet.ready) {
 			return;
 		}
 
 #ifdef DEBUG
 		Serial.print("# timestamp=");
-		Serial.print(packet.timestamp, DEC);
+		Serial.print(r_packet.timestamp, DEC);
 		Serial.print(" index=");
-		Serial.print(packet.index, DEC);
+		Serial.print(r_packet.index, DEC);
 		Serial.print(" age=");
-		Serial.println(micros() - packet.timestamp, DEC);
+		Serial.println(micros() - r_packet.timestamp, DEC);
 #endif
 
-		check = 0;
-		pkt_pos = 0;
-		pos = 3;
+		struct decode_packet d_packet;
+		uint8_t n = 0;
+		char tmp[5];
 
-		for (uint8_t n = 0; n < packet.length; n++) {
-			byte in = packet.data[n];
+		memset(&d_packet, 0, sizeof(d_packet));
 
-			check += in;
-			if (pkt_pos == 0) {
-				in_header = in;
-				if (in & 0xC0) {
-					Serial.print(F("*Unknown header=0x"));
-					Serial.println(in, HEX);
-					return;
-				}
+		sprintf(tmp, "%03u ", r_packet.rssi);
+		Serial.print(tmp);
 
-				sprintf(tmp, "%03u ", packet.rssi);
-				Serial.print(tmp);
-
-				in_type = (in >> TYPE_SHIFT) & TYPE_MASK;
-				in_devices = unmap_dev(in);
-				in_params = (in >> PARAM_SHIFT) & PARAM_MASK;
-
-				if (in_type == enI) {
-					Serial.print(" I ");
-				} else if (in_type == enRQ) {
-					Serial.print("RQ ");
-				} else if (in_type == enRP) {
-					Serial.print("RP ");
-				} else if (in_type == enW) {
-					Serial.print(" W ");
-				} else {
-				}
-				Serial.print("--- "); // parameter not supported... not been observed yet
-				src_devid = 0;
-				devidCount = (in_devices & enDev0) ? 1 : 0;
-				if (in_devices & enDev1) devidCount++;
-				if (in_devices & enDev2) devidCount++;
-				pDev = (byte*)&devid + 2; // platform specific
-			} else if (pkt_pos <= pos) { // ids, support 1 or 2 atm (1, 2 or 3 ids are valid)
-				*pDev-- = in; // platform specific
-				if (pkt_pos == 3) {
-					if (!(in_devices & enDev0) && !(in_devices & enDev1)) {
-						Serial.print("--:------ --:------ ");
-					} else {
-						pos += 3;
-					}
-					if (src_devid == 0) {
-						src_devid = devid;
-					}
-					sprintf(tmp,"%02hu:%06lu ", (uint8_t)(devid >> 18) & 0x3F, devid & 0x3FFFF);
-					Serial.print(tmp);
-					pDev = (byte*)&devid + 2; // platform specific
-				} else if (pkt_pos == 6) {
-					if (!(in_devices & enDev1)) {
-						Serial.print("--:------ ");
-					}
-					if (src_devid == 0) {
-						src_devid = devid;
-					}
-					sprintf(tmp,"%02hu:%06lu ", (uint8_t)(devid >> 18) & 0x3F, devid & 0x3FFFF);
-					Serial.print(tmp);
-					if (!(in_devices & enDev2)) {
-						Serial.print("--:------ ");
-					}
-					pDev = (byte*)&devid + 2; // platform specific
-				}
-			} else if (pkt_pos <= pos + 2 && in_params != 0) { // params (0, 1 or 2)
-				if (in_params & 2) {
-					in_params &= ~2;
-				} else if (in_params & 1) {
-					in_params &= ~1;
-				}
-				pos++;
-			} else if (pkt_pos <= pos + 2) { // command
-				if (pkt_pos == pos + 1) {
-					cmd = in << 8;
-				} else if (pkt_pos == pos + 2) {
-					cmd |= in;
-					sprintf(tmp, "%04X ", cmd);
-					Serial.print(tmp);
-				}
-			} else if (pkt_pos == pos + 3) { // len
-				len = in;
-				sprintf(tmp, "%03hu ", len);
-				Serial.print(tmp);
-			} else if (pkt_pos <= pos + 3 + len) { // payload
-				sprintf(tmp, "%02hX", in);
-				Serial.print(tmp);
-			} else if (pkt_pos == pos + 4 + len) { // checksum
-				if (check == 0) {
-					Serial.println();
-				} else {
-					Serial.print(F("*CHK*"));
-					sprintf(tmp, "+%02hX=%02hX", in, check);
-					Serial.println(tmp);
-				}
-				return;
-			} else {
-				Serial.println(F("*E-DATA*"));
-				return;
-			}
-			pkt_pos++;
+		if (!decode_header(&d_packet, r_packet.data, n)) {
+			return;
 		}
 
-		if (packet.status == maComplete) {
+		if (!decode_devices(&d_packet, r_packet.data, n, r_packet.length)) {
+			goto incomplete;
+		}
+
+		if (!decode_params(&d_packet, r_packet.data, n, r_packet.length)) {
+			goto incomplete;
+		}
+
+		if (!decode_command(&d_packet, r_packet.data, n, r_packet.length)) {
+			goto incomplete;
+		}
+
+		print_header(&d_packet);
+
+		if (!decode_print_content(&d_packet, r_packet.data, n, r_packet.length)) {
+			goto incomplete_content;
+		}
+
+		if (!decode_print_checksum(&d_packet, r_packet.data, n, r_packet.length)) {
+			goto incomplete_content;
+		}
+
+		Serial.println();
+		return;
+
+incomplete:
+		print_header(&d_packet);
+
+incomplete_content:
+		if (r_packet.status == maComplete) {
 			Serial.println(F("*INCOMPLETE*END*"));
-		} else if (packet.status == maResync) {
+		} else if (r_packet.status == maResync) {
 			Serial.println(F("*INCOMPLETE*RESYNC*"));
-		} else if (packet.status == maInvalid) {
+		} else if (r_packet.status == maInvalid) {
 			Serial.println(F("*INCOMPLETE*INVALID*"));
-		} else if (packet.status == maOverflow) {
+		} else if (r_packet.status == maOverflow) {
 			Serial.println(F("*INCOMPLETE*OVERFLOW*"));
 		}
 	} else if (sm < pmSendReady) {
@@ -658,11 +768,4 @@ void loop() {
 		finish_recv_buffer(maComplete);
 		attachInterrupt(GDO2_INT, sync_clk_out, RISING);
 	}
-}
-
-char filter(char average, char sample) {
-	int tmp = average / 8;
-	average -= tmp;
-	average += sample / 8;
-	return average;
 }

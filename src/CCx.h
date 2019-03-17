@@ -144,8 +144,6 @@ class CCX
     void ReadSetup(void);
     // set power amplification using a table
     void setPA(byte configId, byte paIndex);
-    // switch radio mode
-    void Mode(byte);
     // decode RSSI value
     byte RSSIdecode(byte rssiEnc);
 };
