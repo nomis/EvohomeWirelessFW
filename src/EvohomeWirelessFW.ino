@@ -29,7 +29,7 @@
 #include "CCx.h"
 #include "CCxCfg.h"
 
-#define VERSION_NO "1.1"
+#define VERSION_NO "1.2"
 
 #define GDO0_INT 0 // INT0(PD2) wired to GDO0 on CC1101
 #define GDO2_INT 1 // INT1(PD3) wired to GDO2 on CC1101
