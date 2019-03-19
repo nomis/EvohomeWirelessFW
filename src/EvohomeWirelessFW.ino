@@ -28,6 +28,7 @@
 
 #include "CCx.h"
 #include "CCxCfg.h"
+#include "InterruptSafeBuffer.h"
 
 #define VERSION_NO "1.3"
 
@@ -112,42 +113,33 @@ static inline byte map_dev(byte devices) {
 	return 0xFF;
 }
 
-#define MAX_PACKETS 8
+#define MAX_PACKETS 7
 
 struct recv_packet {
-	int8_t index;
-#ifdef DEBUG
-	uint32_t timestamp;
-#endif
-	boolean ready;
 	uint8_t length;
 	enum marker status;
 	uint8_t rssi;
 #ifdef DEBUG
+	uint32_t timestamp;
 	int8_t freqOffset;
 #endif
 	uint8_t data[128];
-	struct recv_packet *next;
 };
 
-static struct recv_packet recv_buffer[MAX_PACKETS];
-static struct recv_packet *head;
-static struct recv_packet *tail;
+static InterruptSafeBuffer<struct recv_packet, MAX_PACKETS, true> recv_buffer;
 static struct recv_packet *write;
-static volatile int8_t readIndex = -1;
-static volatile boolean available = false;
 
-static volatile boolean read_rssi = false;
-static volatile uint8_t rssi;
+static boolean read_rssi = false;
+static uint8_t rssi;
 #ifdef DEBUG
-static volatile int8_t freqOffset;
+static int8_t freqOffset;
 #endif
 
 static uint8_t send_buffer[128];
 static uint8_t send_length;
 
-static volatile byte send_mode = pmIdle;
-static volatile boolean in_sync = false;
+static byte send_mode = pmIdle;
+static boolean in_sync = false;
 static uint8_t timer_interrupts = 0;
 
 struct packet {
@@ -470,22 +462,7 @@ static inline boolean encode_checksum(struct packet &packet, uint8_t *data, uint
 
 SIGNAL(TIMER0_COMPA_vect) {
 	// Only run after being idle for 5ms
-	if (timer_interrupts >= 5 && !available) {
-		// When reading is finished, put the buffer on the end of the list
-		if (readIndex != -1) {
-			tail->next = &recv_buffer[readIndex];
-			tail = &recv_buffer[readIndex];
-			// tail->next was set to NULL by the read process
-			readIndex = -1;
-		}
-
-		// Take the top off the list for reading
-		if (head->ready) {
-			readIndex = head->index;
-			head = head->next;
-			available = true;
-		}
-
+	if (timer_interrupts >= 5 && recv_buffer.dispatch()) {
 		timer_interrupts = 0;
 	} else {
 		timer_interrupts++;
@@ -498,26 +475,14 @@ static void finish_recv_buffer(enum marker status) {
 	if (write->length > 0) {
 #ifdef DEBUG
 		write->timestamp = micros();
-#endif
-		write->status = status;
-		write->ready = true;
-		write->rssi = rssi;
-#ifdef DEBUG
 		write->freqOffset = freqOffset;
 #endif
+		write->status = status;
+		write->rssi = rssi;
 
-		write = write->next;
-		if (write == NULL) {
-			write = head;
-			head = head->next;
-
-			tail->next = write;
-			tail = write;
-			tail->next = NULL;
-
-			write->ready = false;
-			write->length = 0;
-		}
+		recv_buffer.push();
+		write = recv_buffer.write();
+		write->length = 0;
 	}
 
 	rssi = 0;
@@ -684,17 +649,7 @@ void setup() {
 	Serial.println(F("# EvohomeWirelessFW v" VERSION_NO));
 	Serial.println(F("# Licensed under GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>"));
 
-	head = &recv_buffer[0];
-	tail = &recv_buffer[MAX_PACKETS - 1];
-	write = head;
-	for (uint8_t i = 0; i < MAX_PACKETS; i++) {
-		recv_buffer[i].index = i;
-		if (i == MAX_PACKETS - 1) {
-			recv_buffer[i].next = NULL;
-		} else {
-			recv_buffer[i].next = &recv_buffer[i + 1];
-		}
-	}
+	write = recv_buffer.write();
 
 	// Set up a regular timer interrupt to maintain the read buffer
 	OCR0A = 0x01;
@@ -734,32 +689,16 @@ void loop() {
 
 		read_rssi = false;
 	}
-	if (available) {
-		struct recv_packet r_packet;
-
-		if (recv_buffer[readIndex].ready) {
-			memcpy(&r_packet, &recv_buffer[readIndex], offsetof(struct recv_packet, data) + recv_buffer[readIndex].length);
-			recv_buffer[readIndex].ready = false;
-			recv_buffer[readIndex].length = 0;
-			recv_buffer[readIndex].next = NULL;
-			available = false;
-		} else {
-			return;
-		}
-
-		if (!r_packet.ready) {
-			return;
-		}
+	if (recv_buffer.available()) {
+		struct recv_packet *r_packet = recv_buffer.read();
 
 #ifdef DEBUG
 		Serial.print(F("# timestamp="));
-		Serial.print(r_packet.timestamp, DEC);
-		Serial.print(F(" index="));
-		Serial.print(r_packet.index, DEC);
+		Serial.print(r_packet->timestamp, DEC);
 		Serial.print(F(" freqOffset="));
-		Serial.print(r_packet.freqOffset, DEC);
+		Serial.print(r_packet->freqOffset, DEC);
 		Serial.print(F(" age="));
-		Serial.println(micros() - r_packet.timestamp, DEC);
+		Serial.println(micros() - r_packet->timestamp, DEC);
 #endif
 
 		struct packet d_packet;
@@ -768,51 +707,54 @@ void loop() {
 
 		memset(&d_packet, 0, sizeof(d_packet));
 
-		sprintf_P(tmp, PSTR("%03u "), r_packet.rssi);
+		sprintf_P(tmp, PSTR("%03u "), r_packet->rssi);
 		Serial.print(tmp);
 
-		if (!decode_header(d_packet, r_packet.data, n)) {
-			return;
+		if (!decode_header(d_packet, r_packet->data, n)) {
+			goto done;
 		}
 
-		if (!decode_devices(d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_devices(d_packet, r_packet->data, n, r_packet->length)) {
 			goto incomplete;
 		}
 
-		if (!decode_params(d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_params(d_packet, r_packet->data, n, r_packet->length)) {
 			goto incomplete;
 		}
 
-		if (!decode_command(d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_command(d_packet, r_packet->data, n, r_packet->length)) {
 			goto incomplete;
 		}
 
 		print_header(d_packet);
 
-		if (!decode_print_content(d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_print_content(d_packet, r_packet->data, n, r_packet->length)) {
 			goto incomplete_content;
 		}
 
-		if (!decode_print_checksum(d_packet, r_packet.data, n, r_packet.length)) {
+		if (!decode_print_checksum(d_packet, r_packet->data, n, r_packet->length)) {
 			goto incomplete_content;
 		}
 
 		Serial.println();
-		return;
+		goto done;
 
 incomplete:
 		print_header(d_packet);
 
 incomplete_content:
-		if (r_packet.status == maComplete) {
+		if (r_packet->status == maComplete) {
 			Serial.println(F("*INCOMPLETE*END*"));
-		} else if (r_packet.status == maResync) {
+		} else if (r_packet->status == maResync) {
 			Serial.println(F("*INCOMPLETE*RESYNC*"));
-		} else if (r_packet.status == maInvalid) {
+		} else if (r_packet->status == maInvalid) {
 			Serial.println(F("*INCOMPLETE*INVALID*"));
-		} else if (r_packet.status == maOverflow) {
+		} else if (r_packet->status == maOverflow) {
 			Serial.println(F("*INCOMPLETE*OVERFLOW*"));
 		}
+
+done:
+		recv_buffer.pop();
 	} else if (send_mode < pmSendReady) {
 		static struct packet o_packet;
 		static char param[10];
