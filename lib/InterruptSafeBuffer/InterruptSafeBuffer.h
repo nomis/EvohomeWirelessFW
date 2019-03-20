@@ -55,6 +55,9 @@ public:
 
 	virtual ~InterruptSafeBuffer() = default;
 
+	InterruptSafeBuffer(const InterruptSafeBuffer&) = delete;
+	InterruptSafeBuffer& operator=(const InterruptSafeBuffer&) = delete;
+
 	/*!
 	 * Check availability of data to be read.
 	 *
