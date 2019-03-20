@@ -38,15 +38,13 @@ class InterruptSafeBuffer {
 
 private:
 	struct Item {
-		boolean ready;
+		boolean ready = false;
 		struct Item *next;
-		TYPE data;
+		TYPE data {};
 	};
 
 public:
 	InterruptSafeBuffer() {
-		memset(items_, 0, sizeof(items_));
-
 		for (int i = 0; i < SIZE; i++) {
 			items_[i].next = &items_[i + 1];
 		}
@@ -173,7 +171,7 @@ private:
 	struct Item *write_ = &items_[0];
 	struct Item *head_ = &items_[0];
 	struct Item *tail_ = &items_[SIZE];
-	struct Item items_[SIZE + 1];
+	struct Item items_[SIZE + 1] = {};
 };
 
 #endif /* InterruptSafeBuffer_H_ */

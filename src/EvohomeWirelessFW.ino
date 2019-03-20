@@ -650,6 +650,7 @@ void setup() {
 	Serial.println(F("# Licensed under GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>"));
 
 	write = recv_buffer.write();
+	write->length = 0;
 
 	// Set up a regular timer interrupt to maintain the read buffer
 	OCR0A = 0x01;
