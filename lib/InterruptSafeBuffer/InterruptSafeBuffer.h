@@ -68,12 +68,8 @@ public:
 	 * Safe to call from anywhere.
 	 */
 	TYPE* read() {
-		if (available()) {
-			asm volatile("":::"memory");
-			return &read_->data;
-		}
-
-		return nullptr;
+		asm volatile("":::"memory");
+		return &read_->data;
 	}
 
 	/*!
@@ -82,14 +78,12 @@ public:
 	 * Safe to call from anywhere.
 	 */
 	void pop() {
-		if (available()) {
-			read_->ready = false;
-			read_->next = nullptr;
-			asm volatile("":::"memory");
+		read_->ready = false;
+		read_->next = nullptr;
+		asm volatile("":::"memory");
 
-			available_ = false;
-			asm volatile("":::"memory");
-		}
+		available_ = false;
+		asm volatile("":::"memory");
 	}
 
 	/*!
