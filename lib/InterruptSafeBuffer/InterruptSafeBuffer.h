@@ -27,6 +27,9 @@
  *
  * When there is no space available for writing, if FULL_REUSE_OLDEST is true then the oldest item
  * that has not been read will be overwritten otherwise the current item will be recycled.
+ *
+ * Data can only be processed as often as dispatch() is called. To process data as quickly as possible,
+ * call dispatch() after every push() and (with interrupts disabled) every pop().
  */
 template <typename TYPE, int SIZE, bool FULL_REUSE_OLDEST>
 class InterruptSafeBuffer {
@@ -131,7 +134,7 @@ public:
 	/*!
 	 * Cleanup after a data item has been read and make the next one available for reading.
 	 *
-	 * Must be called periodically from an interrupt handler.
+	 * Must be called periodically from an interrupt handler or with interrupts disabled.
 	 */
 	bool dispatch() {
 		bool activity = false;
