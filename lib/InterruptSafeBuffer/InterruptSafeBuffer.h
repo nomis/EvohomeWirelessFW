@@ -18,6 +18,8 @@
 #ifndef InterruptSafeBuffer_H_
 #define InterruptSafeBuffer_H_
 
+#include <limits.h>
+
 /*!
  * Interrupt-safe buffer of TYPE items. Holds SIZE items (with an extra item in reserve for writing).
  *
@@ -29,7 +31,7 @@
 template <typename TYPE, int SIZE, bool FULL_REUSE_OLDEST>
 class InterruptSafeBuffer {
 	static_assert(SIZE > 0, "Buffer cannot be empty");
-	static_assert((SIZE + 1) > 0, "Buffer is too large");
+	static_assert(SIZE < INT_MAX, "Buffer is too large");
 
 private:
 	struct Item {
